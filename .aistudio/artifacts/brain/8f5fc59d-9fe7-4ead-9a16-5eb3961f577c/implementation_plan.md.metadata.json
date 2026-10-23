@@ -1,0 +1,6 @@
+{
+  "summary":  "Plan implementacji aplikacji TrikiScope BLE Web & Mobile:\n- Architektura czasu rzeczywistego (Web Bluetooth API, potok przetwarzania IMU 98 Hz, filtr fuzji Madgwick AHRS, detekcja gestów i kalibracja).\n- Wizualizacja 3D krążka Triki (Three.js, proceduralny model z fizycznymi materiałami PBR, diodą LED i przyciskiem).\n- Prototyp interfejsu React Native Skia / Canvas 2D z 3 przełączanymi layoutami (Split Lab, Aviation Horizon, Signal Inspector).\n- Dwa kompletne motywy graficzne: Clean Tech Light oraz wysokokontrastowy E-Ink Monochrome.\n- Gotowe wzorce i specyfikacja migracji do React Native (BLE Manager + Skia).",
+  "updatedAt":  "2026-10-23T09:04:41.349019283Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}
