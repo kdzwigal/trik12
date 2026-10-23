@@ -325,7 +325,10 @@ export const AviationHorizon: React.FC<AviationHorizonProps> = ({ sample, theme 
           <span className="text-lg font-bold text-slate-900">{yaw.toFixed(1)}°</span>
         </div>
         <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-          <span className="text-slate-400 block mb-1">OBECNY G-FORCE</span>
+          <div className="flex items-center justify-between text-slate-400 text-[10px] mb-1">
+            <span>OBECNY G-FORCE</span>
+            <span className="text-emerald-700 font-bold bg-emerald-50 px-1 rounded">1.00g Baza</span>
+          </div>
           <span className="text-lg font-bold text-sky-600">{gLoad.toFixed(2)} g</span>
         </div>
       </div>

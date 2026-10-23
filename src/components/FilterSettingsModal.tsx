@@ -39,10 +39,11 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
           rawAccelLpfFactor: 0.15,
           rawGyroDeadband: 0.005,
           swapPitchRoll: true,
-          invertPitch: false,
-          invertRoll: true,
+          invertPitch: true,
+          invertRoll: false,
           invertYaw: true,
           yawScaleMultiplier: 1.0,
+          accelScaleMultiplier: 1.0,
         });
         break;
       case 'dynamic':
@@ -53,10 +54,11 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
           rawAccelLpfFactor: 0.05,
           rawGyroDeadband: 0.0,
           swapPitchRoll: true,
-          invertPitch: false,
-          invertRoll: true,
+          invertPitch: true,
+          invertRoll: false,
           invertYaw: true,
           yawScaleMultiplier: 1.0,
+          accelScaleMultiplier: 1.0,
         });
         break;
       case 'stable':
@@ -67,10 +69,11 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
           rawAccelLpfFactor: 0.40,
           rawGyroDeadband: 0.02,
           swapPitchRoll: true,
-          invertPitch: false,
-          invertRoll: true,
+          invertPitch: true,
+          invertRoll: false,
           invertYaw: true,
           yawScaleMultiplier: 1.0,
+          accelScaleMultiplier: 1.0,
         });
         break;
       case 'madgwick':
@@ -80,10 +83,11 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
           rawAccelLpfFactor: 0.15,
           rawGyroDeadband: 0.005,
           swapPitchRoll: true,
-          invertPitch: false,
-          invertRoll: true,
+          invertPitch: true,
+          invertRoll: false,
           invertYaw: true,
           yawScaleMultiplier: 1.0,
+          accelScaleMultiplier: 1.0,
         });
         break;
     }
@@ -445,6 +449,37 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
                 Naprawiono błąd zaniżania kąta (gdzie pełny obrót 360° dawał tylko 44-46°). Sprzętowy przetwornik żyroskopu Triki działa z czułością 16.384 LSB/°/s (zakres ±2000 dps).
               </p>
             </div>
+
+            {/* Slider 6: Accelerometer G-Force Multiplier */}
+            <div className="space-y-1.5 p-3 rounded-xl border bg-sky-50/50 border-sky-200">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                  <span>Kalibracja siły ciążenia G-Force (w spoczynku = 1.00g):</span>
+                  <span className="font-mono text-sky-700 font-bold">
+                    {(config.accelScaleMultiplier ?? 1.0).toFixed(2)}x
+                  </span>
+                </label>
+                <span className="text-[11px] text-sky-800/80 font-mono">1.00g w spoczynku</span>
+              </div>
+              <input
+                type="range"
+                min="0.80"
+                max="1.30"
+                step="0.01"
+                value={config.accelScaleMultiplier ?? 1.0}
+                onChange={(e) => onConfigChange({ accelScaleMultiplier: parseFloat(e.target.value) })}
+                className="w-full accent-sky-600 cursor-pointer"
+              />
+              <div className="flex justify-between text-[10px] text-slate-500">
+                <span>0.80x</span>
+                <span className="font-semibold text-sky-700">1.00x (Skalibrowane do 1.00 g na biurku)</span>
+                <span>1.30x</span>
+              </div>
+              <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                Naprawiono odczyt spoczynkowy krążka (0.89 g na biurku zostało przeskalowane do rzeczywistego ziemskiego 1.00 g).
+              </p>
+            </div>
           </div>
 
           {/* Section: Axis Mapping & Swap Pitch/Roll */}
@@ -488,36 +523,42 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
 
             {/* Inversion toggles */}
             <div className="space-y-2 pt-1">
-              <span className="block text-xs font-semibold text-slate-600">Odwracanie zwrotu osi (zastosowane do obecnych osi):</span>
+              <span className="block text-xs font-semibold text-slate-600">Odwracanie zwrotu osi:</span>
               <div className="flex items-center gap-4 flex-wrap text-xs">
-                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                <label className={`flex items-center gap-1.5 cursor-pointer select-none px-2 py-1 rounded border transition-colors ${
+                  config.invertPitch ? 'bg-indigo-50 border-indigo-200 font-semibold text-indigo-950' : 'border-transparent text-slate-700'
+                }`}>
                   <input
                     type="checkbox"
                     checked={config.invertPitch}
                     onChange={(e) => onConfigChange({ invertPitch: e.target.checked })}
-                    className="accent-sky-600 cursor-pointer"
+                    className="accent-indigo-600 cursor-pointer"
                   />
-                  <span>Odwróć Pitch</span>
+                  <span>Odwróć Pitch (Pochylenie) {config.invertPitch ? '✓' : ''}</span>
                 </label>
 
-                <label className="flex items-center gap-1.5 cursor-pointer select-none bg-sky-50 border border-sky-200 px-2 py-1 rounded">
+                <label className={`flex items-center gap-1.5 cursor-pointer select-none px-2 py-1 rounded border transition-colors ${
+                  config.invertRoll ? 'bg-sky-50 border-sky-200 font-semibold text-sky-950' : 'border-transparent text-slate-700'
+                }`}>
                   <input
                     type="checkbox"
                     checked={config.invertRoll}
                     onChange={(e) => onConfigChange({ invertRoll: e.target.checked })}
                     className="accent-sky-600 cursor-pointer"
                   />
-                  <span className="font-semibold text-sky-900">Odwróć Roll (Obecna oś) {config.invertRoll ? '✓' : ''}</span>
+                  <span>Odwróć Roll (Przechył) {config.invertRoll ? '✓' : ''}</span>
                 </label>
 
-                <label className="flex items-center gap-1.5 cursor-pointer select-none bg-amber-50 border border-amber-200 px-2 py-1 rounded">
+                <label className={`flex items-center gap-1.5 cursor-pointer select-none px-2 py-1 rounded border transition-colors ${
+                  config.invertYaw ? 'bg-amber-50 border-amber-200 font-semibold text-amber-950' : 'border-transparent text-slate-700'
+                }`}>
                   <input
                     type="checkbox"
                     checked={config.invertYaw}
                     onChange={(e) => onConfigChange({ invertYaw: e.target.checked })}
                     className="accent-amber-600 cursor-pointer"
                   />
-                  <span className="font-semibold text-amber-900">Odwróć Yaw (Obecna oś) {config.invertYaw ? '✓' : ''}</span>
+                  <span>Odwróć Yaw (Obrót Z) {config.invertYaw ? '✓' : ''}</span>
                 </label>
               </div>
             </div>

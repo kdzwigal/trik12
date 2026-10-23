@@ -74,9 +74,10 @@ export class TrikiBleManager {
   // Triki hardware scale factors:
   // IMU sensor configured for ±2000 dps full-scale range:
   // Sensitivity = 32768 / 2000 = 16.384 LSB / (deg/s) (131.0 / 8.0).
-  // Fixes 8x discrepancy where full 360° turn resulted in only 44-46°!
   private gyroScaleTriki: number = (1.0 / 16.384) * (Math.PI / 180.0); // in rad/s
-  private accelScaleTriki: number = 1.0 / 2048.0; // in g
+  // Accel scale: Triki hardware raw 1g at rest produces ~1823 counts (1823/2048 = 0.89g).
+  // Scaled by 1.0 / (2048.0 * 0.89) = 1.0 / 1822.72 so resting on desk measures exactly 1.00g.
+  private accelScaleTriki: number = 1.0 / (2048.0 * 0.89); // in g
 
   // Button state management
   public buttonMode: ButtonMode = 'exact-01';
@@ -609,9 +610,9 @@ export class TrikiBleManager {
         const rawAx = dataView.getInt16(0, true);
         const rawAy = dataView.getInt16(2, true);
         const rawAz = dataView.getInt16(4, true);
-        ax = rawAx / 2048.0;
-        ay = rawAy / 2048.0;
-        az = rawAz / 2048.0;
+        ax = rawAx / (2048.0 * 0.89);
+        ay = rawAy / (2048.0 * 0.89);
+        az = rawAz / (2048.0 * 0.89);
       }
       if (len >= 12) {
         const rawGx = dataView.getInt16(6, true);

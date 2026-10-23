@@ -48,9 +48,9 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
   const [ledMethod, setLedMethod] = useState<LedControlMethod>(trikiBle.getLedControlMethod());
   const [swapPitchRoll, setSwapPitchRoll] = useState<boolean>(sensorPipeline.getSwapPitchRoll());
 
-  // Axis and button inversion states (Roll & Yaw inverted by default on current axes)
-  const [invertPitch, setInvertPitch] = useState(false);
-  const [invertRoll, setInvertRoll] = useState(true);
+  // Axis and button inversion states (Pitch & Yaw inverted: "anuluj odwrocenie roll, owroc pitch")
+  const [invertPitch, setInvertPitch] = useState(true);
+  const [invertRoll, setInvertRoll] = useState(false);
   const [invertYaw, setInvertYaw] = useState(true);
   const [buttonMode, setButtonMode] = useState<ButtonMode>(trikiBle.getButtonMode());
   const [currentFilter, setCurrentFilter] = useState<FusionFilterMode>(filterMode);
@@ -606,9 +606,9 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                 P⇄R na stałe
               </span>
             )}
-            {(invertRoll || invertYaw) && (
-              <span className="text-[10px] bg-sky-100 text-sky-800 px-1.5 py-0.2 rounded font-normal" title="Odwrócenie obecnych osi Yaw i Roll aktywne">
-                R/Y odwrócone
+            {(invertPitch || invertYaw) && (
+              <span className="text-[10px] bg-sky-100 text-sky-800 px-1.5 py-0.2 rounded font-normal" title="Odwrócenie osi Pitch i Yaw aktywne">
+                P/Y odwrócone
               </span>
             )}
             {onOpenFilterSettings && (
@@ -882,25 +882,25 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                 <span className="text-slate-300">|</span>
 
                 <span className="font-semibold text-slate-600">Odwracanie:</span>
-                <label className="flex items-center gap-1 cursor-pointer select-none">
+                <label className={`flex items-center gap-1 cursor-pointer select-none px-1.5 py-0.2 rounded ${invertPitch ? 'bg-indigo-50 text-indigo-800 font-semibold' : ''}`} title="Odwrócenie osi Pitch (Pochylenie)">
                   <input
                     type="checkbox"
                     checked={invertPitch}
                     onChange={handleTogglePitch}
-                    className="accent-sky-600 cursor-pointer"
+                    className="accent-indigo-600 cursor-pointer"
                   />
-                  <span>Pitch</span>
+                  <span>Pitch (Odwrócony)</span>
                 </label>
-                <label className={`flex items-center gap-1 cursor-pointer select-none px-1.5 py-0.2 rounded ${invertRoll ? 'bg-sky-50 text-sky-800 font-semibold' : ''}`} title="Odwrócenie obecnej osi Roll">
+                <label className={`flex items-center gap-1 cursor-pointer select-none px-1.5 py-0.2 rounded ${invertRoll ? 'bg-sky-50 text-sky-800 font-semibold' : ''}`} title="Odwrócenie osi Roll (Przechył)">
                   <input
                     type="checkbox"
                     checked={invertRoll}
                     onChange={handleToggleRoll}
                     className="accent-sky-600 cursor-pointer"
                   />
-                  <span>Roll (Odwrócony)</span>
+                  <span>Roll</span>
                 </label>
-                <label className={`flex items-center gap-1 cursor-pointer select-none px-1.5 py-0.2 rounded ${invertYaw ? 'bg-amber-50 text-amber-800 font-semibold' : ''}`} title="Odwrócenie obecnej osi Yaw">
+                <label className={`flex items-center gap-1 cursor-pointer select-none px-1.5 py-0.2 rounded ${invertYaw ? 'bg-amber-50 text-amber-800 font-semibold' : ''}`} title="Odwrócenie osi Yaw (Obrót wokół Z)">
                   <input
                     type="checkbox"
                     checked={invertYaw}

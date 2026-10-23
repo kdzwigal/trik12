@@ -43,10 +43,11 @@ export class SensorPipeline {
     rawAccelLpfFactor: 0.15,
     rawGyroDeadband: 0.005,
     swapPitchRoll: true, // Permanent Pitch ⇄ Roll swap
-    invertPitch: false,
-    invertRoll: true,    // Inverted by default on current roll axis: "dodaj odwrocenie na obecnych osiach yaw i roll"
-    invertYaw: true,     // Inverted by default on current yaw axis: "dodaj odwrocenie na obecnych osiach yaw i roll"
+    invertPitch: true,   // Inverted as requested: "owroc pitch"
+    invertRoll: false,   // Canceled as requested: "anuluj odwrocenie roll"
+    invertYaw: true,     // Inverted
     yawScaleMultiplier: 1.0, // Fine-tuning multiplier for full 360° rotation
+    accelScaleMultiplier: 1.0, // Multiplier for 1.00g resting Earth gravity
   };
 
   // Low-Pass Filter state for raw accelerometer
@@ -67,9 +68,9 @@ export class SensorPipeline {
   constructor(bufferCapacity: number = 500) {
     this.fusion = new OrientationFusion('complementary');
     this.fusion.swapPitchRoll = true;
-    this.fusion.invertRoll = true;
+    this.fusion.invertPitch = true;
+    this.fusion.invertRoll = false;
     this.fusion.invertYaw = true;
-    this.fusion.invertPitch = false;
     this.fusion.yawScaleMultiplier = 1.0;
     this.fusion.compAlpha = this.filterConfig.compAlpha;
     this.fusion.beta = this.filterConfig.madgwickBeta;
@@ -113,6 +114,9 @@ export class SensorPipeline {
     }
     if (partial.yawScaleMultiplier !== undefined) {
       this.fusion.yawScaleMultiplier = partial.yawScaleMultiplier;
+    }
+    if (partial.accelScaleMultiplier !== undefined) {
+      this.filterConfig.accelScaleMultiplier = partial.accelScaleMultiplier;
     }
     this.notifyFilterConfigChanged();
   }
@@ -203,6 +207,16 @@ export class SensorPipeline {
         this.calibration.gyroBiasX = this.calibrationAccumulator.gx / count;
         this.calibration.gyroBiasY = this.calibrationAccumulator.gy / count;
         this.calibration.gyroBiasZ = this.calibrationAccumulator.gz / count;
+
+        // Auto-calibrate resting gravity on desk to exactly 1.000g if stationary
+        const avgAx = this.calibrationAccumulator.ax / count;
+        const avgAy = this.calibrationAccumulator.ay / count;
+        const avgAz = this.calibrationAccumulator.az / count;
+        const measuredMag = Math.sqrt(avgAx * avgAx + avgAy * avgAy + avgAz * avgAz);
+        if (measuredMag > 0.5 && measuredMag < 2.0) {
+          this.filterConfig.accelScaleMultiplier = 1.0 / measuredMag;
+        }
+
         // Zero gyro bias
         this.calibration.accelOffsetX = 0;
         this.calibration.accelOffsetY = 0;
@@ -211,13 +225,15 @@ export class SensorPipeline {
         this.isCalibrating = false;
         this.fusion.tare();
         this.notifyCalibrationChanged();
+        this.notifyFilterConfigChanged();
       }
     }
 
-    // 2. Apply calibration offsets (gyro bias subtraction)
-    let ax = raw.accel.x - this.calibration.accelOffsetX;
-    let ay = raw.accel.y - this.calibration.accelOffsetY;
-    let az = raw.accel.z - this.calibration.accelOffsetZ;
+    // 2. Apply calibration offsets and acceleration scale multiplier (normalizes 0.89g to 1.00g)
+    const accelScale = this.filterConfig.accelScaleMultiplier ?? 1.0;
+    let ax = (raw.accel.x - this.calibration.accelOffsetX) * accelScale;
+    let ay = (raw.accel.y - this.calibration.accelOffsetY) * accelScale;
+    let az = (raw.accel.z - this.calibration.accelOffsetZ) * accelScale;
 
     let gx = raw.gyro.x - this.calibration.gyroBiasX;
     let gy = raw.gyro.y - this.calibration.gyroBiasY;

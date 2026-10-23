@@ -29,9 +29,9 @@ export class OrientationFusion {
   private tareYaw: number = 0.0;
 
   // Inversion, Axis Swap, and Sensitivity flags
-  public invertPitch: boolean = false;
-  public invertRoll: boolean = true; // Inverted by default on current roll axis: "dodaj odwrocenie na obecnych osiach yaw i roll"
-  public invertYaw: boolean = true;  // Inverted by default on current yaw axis: "dodaj odwrocenie na obecnych osiach yaw i roll"
+  public invertPitch: boolean = true;  // Inverted as requested: "owroc pitch"
+  public invertRoll: boolean = false;  // Canceled as requested: "anuluj odwrocenie roll"
+  public invertYaw: boolean = true;   // Inverted by default
   public swapPitchRoll: boolean = true; // Permanent by default: "zastosuj zamiane pitch roll na stale"
   public yawScaleMultiplier: number = 1.0; // Fine-tuning multiplier for full 360° rotation
 

@@ -74,10 +74,11 @@ export interface FilterConfig {
   rawAccelLpfFactor: number; // 0.0 - 0.80 (default: 0.15)
   rawGyroDeadband: number; // 0.0 - 0.10 rad/s (default: 0.005)
   swapPitchRoll: boolean; // default: true (permanent pitch ⇄ roll swap)
-  invertPitch: boolean; // default: false
-  invertRoll: boolean; // default: true (inverted on current roll axis)
-  invertYaw: boolean; // default: true (inverted on current yaw axis)
+  invertPitch: boolean; // default: true (inverted as requested: "owroc pitch")
+  invertRoll: boolean; // default: false (canceled as requested: "anuluj odwrocenie roll")
+  invertYaw: boolean; // default: true (inverted)
   yawScaleMultiplier: number; // default: 1.0 (fine-tuning multiplier for full 360° rotation)
+  accelScaleMultiplier: number; // default: 1.0 (fine-tuning multiplier for 1.00g resting Earth gravity)
 }
 
 export interface BLEConnectionState {
