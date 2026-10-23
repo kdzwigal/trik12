@@ -53,8 +53,8 @@ export const SignalInspector: React.FC<SignalInspectorProps> = ({
         </div>
       </div>
 
-      {/* 6-Channel Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs font-mono">
+      {/* 7-Channel IMU & Button Telemetry Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 text-xs font-mono">
         <div className="p-3 rounded-lg border bg-slate-50 border-slate-200 flex flex-col justify-between">
           <span className="text-[11px] text-slate-500">ACCEL X</span>
           <span className="text-xl font-bold text-sky-600">
@@ -101,6 +101,23 @@ export const SignalInspector: React.FC<SignalInspectorProps> = ({
             {sample ? (sample.gyro.z * 57.3).toFixed(1) : '0.0'} °/s
           </span>
           <span className="text-[10px] text-slate-400">Prędkość Yaw</span>
+        </div>
+
+        {/* Dedicated Button Status Tile */}
+        <div className={`p-3 rounded-lg border flex flex-col justify-between transition-colors ${
+          sample?.button
+            ? isEink
+              ? 'bg-black text-white border-black'
+              : 'bg-emerald-50 border-emerald-300 text-emerald-900'
+            : 'bg-slate-50 border-slate-200'
+        }`}>
+          <span className="text-[11px] font-semibold text-slate-500">PRZYCISK</span>
+          <span className={`text-base font-bold ${sample?.button ? (isEink ? 'text-white' : 'text-emerald-700') : 'text-slate-500'}`}>
+            {sample?.button ? '● WCIŚNIĘTY' : '○ Puszczony'}
+          </span>
+          <span className="text-[10px] opacity-75">
+            Bajt[1]: 0x{sample?.buttonRawByte !== undefined ? sample.buttonRawByte.toString(16).padStart(2, '0').toUpperCase() : '00'} · Klik: {sample?.buttonPressCount ?? 0}
+          </span>
         </div>
       </div>
 

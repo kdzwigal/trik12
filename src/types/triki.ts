@@ -6,23 +6,29 @@ export interface RawSensorSample {
   timestamp: number; // performance.now() or sensor packet timestamp
   packetIndex: number;
   accel: {
-    x: number; // g or m/s^2
+    x: number; // g
     y: number;
     z: number;
   };
   gyro: {
-    x: number; // deg/s or rad/s
+    x: number; // rad/s
     y: number;
     z: number;
   };
   button: boolean;
+  buttonRawByte?: number; // raw byte[1] value (e.g. 0x00 or 0x01)
   batteryLevel?: number; // 0-100%
   rawBytes?: Uint8Array;
 }
 
+export type FusionFilterMode = 'complementary' | 'madgwick';
+
+export type ButtonMode = 'exact-01' | 'bit0' | 'inverted' | 'nonzero' | 'manual' | 'tap';
+
 export interface CalibratedSample extends RawSensorSample {
   accelMagnitude: number;
   gyroMagnitude: number;
+  buttonPressCount: number;
   quaternion: {
     w: number;
     x: number;
@@ -52,6 +58,28 @@ export type LayoutMode = 'split' | 'aviation' | 'signal' | 'rn-architecture';
 
 export type ThemeMode = 'clean-light' | 'eink';
 
+export interface LedCommand {
+  r: number;
+  g: number;
+  b: number;
+  brightness: number; // 0-255
+}
+
+export type LedControlMethod = 'auto' | 'char-6e400004' | 'nus-rx-01' | 'nus-rx-vendor' | 'both';
+
+export interface FilterConfig {
+  mode: FusionFilterMode;
+  compAlpha: number; // 0.50 - 0.999 (default: 0.95)
+  madgwickBeta: number; // 0.01 - 0.50 (default: 0.08)
+  rawAccelLpfFactor: number; // 0.0 - 0.80 (default: 0.15)
+  rawGyroDeadband: number; // 0.0 - 0.10 rad/s (default: 0.005)
+  swapPitchRoll: boolean; // default: true (permanent pitch ⇄ roll swap)
+  invertPitch: boolean; // default: false
+  invertRoll: boolean; // default: true (inverted on current roll axis)
+  invertYaw: boolean; // default: true (inverted on current yaw axis)
+  yawScaleMultiplier: number; // default: 1.0 (fine-tuning multiplier for full 360° rotation)
+}
+
 export interface BLEConnectionState {
   status: 'disconnected' | 'searching' | 'connecting' | 'connected' | 'error';
   deviceName?: string;
@@ -64,12 +92,11 @@ export interface BLEConnectionState {
   isWebBluetoothSupported: boolean;
   lastCommandStatus?: string;
   rawBytesHex?: string;
+  buttonMode: ButtonMode;
+  buttonPressCount: number;
+  lastButtonRawByte?: number;
+  ledEnabled?: boolean;
+  ledMethod?: LedControlMethod;
   debugLogs: string[];
 }
 
-export interface LedCommand {
-  r: number;
-  g: number;
-  b: number;
-  brightness: number; // 0-255
-}

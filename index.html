@@ -9,6 +9,27 @@
     <meta property="og:description" content="Real-time BLE IMU telemetry station, Madgwick AHRS sensor fusion, Three.js 3D viewer, and React Native Skia dashboard prototype for Żabka Triki (CAP001)." />
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
+    <script>
+      // Browser extension & sandbox iframe compatibility shim:
+      // Prevents "TypeError: Cannot set property fetch of #<Window> which has only a getter"
+      (function() {
+        try {
+          var _origFetch = window.fetch;
+          Object.defineProperty(window, 'fetch', {
+            get: function() {
+              return _origFetch;
+            },
+            set: function(val) {
+              _origFetch = val;
+            },
+            configurable: true,
+            enumerable: true
+          });
+        } catch (e) {
+          // ignore if environment prevents redefinition
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

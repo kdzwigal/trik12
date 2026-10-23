@@ -1,14 +1,15 @@
 /**
  * Real-time Sensor Processing Pipeline
- * Integrates Raw IMU data -> Calibration -> Madgwick AHRS -> Gesture Detection -> Ring Buffer
+ * Integrates Raw IMU data -> Calibration -> Dual Orientation Fusion -> Gesture Detection -> Ring Buffer
  */
 
-import { RawSensorSample, CalibratedSample, SensorCalibration } from '../types/triki';
-import { MadgwickFilter } from './madgwickFilter';
+import { RawSensorSample, CalibratedSample, SensorCalibration, FusionFilterMode, FilterConfig } from '../types/triki';
+import { OrientationFusion } from './madgwickFilter';
 import { RingBuffer } from './ringBuffer';
+import { trikiBle } from './bleManager';
 
 export class SensorPipeline {
-  private madgwick: MadgwickFilter;
+  private fusion: OrientationFusion;
   private ringBuffer: RingBuffer<CalibratedSample>;
   private calibration: SensorCalibration = {
     gyroBiasX: 0,
@@ -32,7 +33,27 @@ export class SensorPipeline {
   };
 
   private isCalibrating: boolean = false;
-  private calibrationTargetCount: number = 200; // ~2 seconds of 100 Hz data
+  private calibrationTargetCount: number = 150; // ~1.5 seconds
+
+  // Configurable filtering pipeline settings
+  private filterConfig: FilterConfig = {
+    mode: 'complementary',
+    compAlpha: 0.95,
+    madgwickBeta: 0.08,
+    rawAccelLpfFactor: 0.15,
+    rawGyroDeadband: 0.005,
+    swapPitchRoll: true, // Permanent Pitch ⇄ Roll swap
+    invertPitch: false,
+    invertRoll: true,    // Inverted by default on current roll axis: "dodaj odwrocenie na obecnych osiach yaw i roll"
+    invertYaw: true,     // Inverted by default on current yaw axis: "dodaj odwrocenie na obecnych osiach yaw i roll"
+    yawScaleMultiplier: 1.0, // Fine-tuning multiplier for full 360° rotation
+  };
+
+  // Low-Pass Filter state for raw accelerometer
+  private filteredAx: number = 0;
+  private filteredAy: number = 0;
+  private filteredAz: number = 1.0;
+  private lpfInitialized: boolean = false;
 
   // Gesture state
   private lastTapTimestamp: number = 0;
@@ -41,9 +62,17 @@ export class SensorPipeline {
   // Observers
   private sampleListeners: ((sample: CalibratedSample) => void)[] = [];
   private calibrationListeners: ((cal: SensorCalibration) => void)[] = [];
+  private filterConfigListeners: ((cfg: FilterConfig) => void)[] = [];
 
   constructor(bufferCapacity: number = 500) {
-    this.madgwick = new MadgwickFilter(0.12, 100);
+    this.fusion = new OrientationFusion('complementary');
+    this.fusion.swapPitchRoll = true;
+    this.fusion.invertRoll = true;
+    this.fusion.invertYaw = true;
+    this.fusion.invertPitch = false;
+    this.fusion.yawScaleMultiplier = 1.0;
+    this.fusion.compAlpha = this.filterConfig.compAlpha;
+    this.fusion.beta = this.filterConfig.madgwickBeta;
     this.ringBuffer = new RingBuffer<CalibratedSample>(bufferCapacity);
   }
 
@@ -55,11 +84,80 @@ export class SensorPipeline {
     return { ...this.calibration };
   }
 
-  public resetOrientation(): void {
-    this.madgwick.reset(1.0, 0.0, 0.0, 0.0);
+  public getFilterConfig(): FilterConfig {
+    return { ...this.filterConfig };
   }
 
-  public startCalibration(targetCount: number = 200): void {
+  public updateFilterConfig(partial: Partial<FilterConfig>): void {
+    this.filterConfig = { ...this.filterConfig, ...partial };
+    if (partial.mode !== undefined) {
+      this.fusion.setFilterMode(partial.mode);
+    }
+    if (partial.compAlpha !== undefined) {
+      this.fusion.compAlpha = partial.compAlpha;
+    }
+    if (partial.madgwickBeta !== undefined) {
+      this.fusion.beta = partial.madgwickBeta;
+    }
+    if (partial.swapPitchRoll !== undefined) {
+      this.fusion.swapPitchRoll = partial.swapPitchRoll;
+    }
+    if (partial.invertPitch !== undefined) {
+      this.fusion.invertPitch = partial.invertPitch;
+    }
+    if (partial.invertRoll !== undefined) {
+      this.fusion.invertRoll = partial.invertRoll;
+    }
+    if (partial.invertYaw !== undefined) {
+      this.fusion.invertYaw = partial.invertYaw;
+    }
+    if (partial.yawScaleMultiplier !== undefined) {
+      this.fusion.yawScaleMultiplier = partial.yawScaleMultiplier;
+    }
+    this.notifyFilterConfigChanged();
+  }
+
+  public setFilterMode(mode: FusionFilterMode): void {
+    this.updateFilterConfig({ mode });
+  }
+
+  public getFilterMode(): FusionFilterMode {
+    return this.filterConfig.mode;
+  }
+
+  public setSwapPitchRoll(swap: boolean): void {
+    this.updateFilterConfig({ swapPitchRoll: swap });
+  }
+
+  public getSwapPitchRoll(): boolean {
+    return this.filterConfig.swapPitchRoll;
+  }
+
+  public setInversions(pitch: boolean, roll: boolean, yaw: boolean): void {
+    this.updateFilterConfig({ invertPitch: pitch, invertRoll: roll, invertYaw: yaw });
+  }
+
+  public onFilterConfigChange(listener: (cfg: FilterConfig) => void): () => void {
+    this.filterConfigListeners.push(listener);
+    return () => {
+      this.filterConfigListeners = this.filterConfigListeners.filter((l) => l !== listener);
+    };
+  }
+
+  private notifyFilterConfigChanged(): void {
+    this.filterConfigListeners.forEach((l) => l({ ...this.filterConfig }));
+  }
+
+  public resetOrientation(): void {
+    this.fusion.reset();
+    this.fusion.tare();
+  }
+
+  public tare(): void {
+    this.fusion.tare();
+  }
+
+  public startCalibration(targetCount: number = 150): void {
     this.isCalibrating = true;
     this.calibrationTargetCount = targetCount;
     this.calibrationAccumulator = { gx: 0, gy: 0, gz: 0, ax: 0, ay: 0, az: 0, count: 0 };
@@ -89,14 +187,14 @@ export class SensorPipeline {
    * Process raw sensor packet in real time
    */
   public processRawSample(raw: RawSensorSample): CalibratedSample {
-    // 1. Handle live calibration routine if active
+    // 1. Handle live stationary calibration routine if active
     if (this.isCalibrating) {
       this.calibrationAccumulator.gx += raw.gyro.x;
       this.calibrationAccumulator.gy += raw.gyro.y;
       this.calibrationAccumulator.gz += raw.gyro.z;
       this.calibrationAccumulator.ax += raw.accel.x;
       this.calibrationAccumulator.ay += raw.accel.y;
-      this.calibrationAccumulator.az += raw.accel.z - 1.0; // Assume 1g on Z when flat
+      this.calibrationAccumulator.az += raw.accel.z;
       this.calibrationAccumulator.count++;
       this.calibration.samplesCollected = this.calibrationAccumulator.count;
 
@@ -105,32 +203,59 @@ export class SensorPipeline {
         this.calibration.gyroBiasX = this.calibrationAccumulator.gx / count;
         this.calibration.gyroBiasY = this.calibrationAccumulator.gy / count;
         this.calibration.gyroBiasZ = this.calibrationAccumulator.gz / count;
-        this.calibration.accelOffsetX = this.calibrationAccumulator.ax / count;
-        this.calibration.accelOffsetY = this.calibrationAccumulator.ay / count;
-        this.calibration.accelOffsetZ = this.calibrationAccumulator.az / count;
+        // Zero gyro bias
+        this.calibration.accelOffsetX = 0;
+        this.calibration.accelOffsetY = 0;
+        this.calibration.accelOffsetZ = 0;
         this.calibration.isCalibrated = true;
         this.isCalibrating = false;
+        this.fusion.tare();
         this.notifyCalibrationChanged();
       }
     }
 
-    // 2. Apply calibration offsets
-    const ax = raw.accel.x - this.calibration.accelOffsetX;
-    const ay = raw.accel.y - this.calibration.accelOffsetY;
-    const az = raw.accel.z - this.calibration.accelOffsetZ;
+    // 2. Apply calibration offsets (gyro bias subtraction)
+    let ax = raw.accel.x - this.calibration.accelOffsetX;
+    let ay = raw.accel.y - this.calibration.accelOffsetY;
+    let az = raw.accel.z - this.calibration.accelOffsetZ;
 
-    const gx = raw.gyro.x - this.calibration.gyroBiasX;
-    const gy = raw.gyro.y - this.calibration.gyroBiasY;
-    const gz = raw.gyro.z - this.calibration.gyroBiasZ;
+    let gx = raw.gyro.x - this.calibration.gyroBiasX;
+    let gy = raw.gyro.y - this.calibration.gyroBiasY;
+    let gz = raw.gyro.z - this.calibration.gyroBiasZ;
+
+    // Apply Gyro deadband if configured (suppresses idle drift)
+    if (this.filterConfig.rawGyroDeadband > 0) {
+      if (Math.abs(gx) < this.filterConfig.rawGyroDeadband) gx = 0;
+      if (Math.abs(gy) < this.filterConfig.rawGyroDeadband) gy = 0;
+      if (Math.abs(gz) < this.filterConfig.rawGyroDeadband) gz = 0;
+    }
+
+    // Apply Accelerometer Low-Pass Filter (LPF) to damp sensor vibration noise
+    const lpf = this.filterConfig.rawAccelLpfFactor;
+    if (lpf > 0) {
+      if (!this.lpfInitialized) {
+        this.filteredAx = ax;
+        this.filteredAy = ay;
+        this.filteredAz = az;
+        this.lpfInitialized = true;
+      } else {
+        this.filteredAx = this.filteredAx * lpf + ax * (1.0 - lpf);
+        this.filteredAy = this.filteredAy * lpf + ay * (1.0 - lpf);
+        this.filteredAz = this.filteredAz * lpf + az * (1.0 - lpf);
+        ax = this.filteredAx;
+        ay = this.filteredAy;
+        az = this.filteredAz;
+      }
+    }
 
     // 3. Compute vector magnitudes
     const accelMag = Math.sqrt(ax * ax + ay * ay + az * az);
     const gyroMag = Math.sqrt(gx * gx + gy * gy + gz * gz);
 
-    // 4. Update Madgwick AHRS filter
-    this.madgwick.update(gx, gy, gz, ax, ay, az, raw.timestamp);
-    const quat = this.madgwick.getQuaternion();
-    const euler = this.madgwick.getEuler();
+    // 4. Update Orientation Fusion filter
+    this.fusion.update(gx, gy, gz, ax, ay, az, raw.timestamp);
+    const quat = this.fusion.getQuaternion();
+    const euler = this.fusion.getEuler();
 
     // 5. Detect Gestures
     let gesture: CalibratedSample['gesture'] = 'idle';
@@ -139,9 +264,9 @@ export class SensorPipeline {
       gesture = 'freefall';
     } else if (gyroMag > 12.0 || accelMag > 3.0) {
       gesture = 'shake';
-    } else if (euler.roll > 40) {
+    } else if (euler.roll > 45) {
       gesture = 'tilt_right';
-    } else if (euler.roll < -40) {
+    } else if (euler.roll < -45) {
       gesture = 'tilt_left';
     } else if (accelMag > 2.2) {
       const now = raw.timestamp;
@@ -154,12 +279,17 @@ export class SensorPipeline {
       }
     }
 
+    const isTapMode = trikiBle.getButtonMode() === 'tap';
+    const effectiveButton = isTapMode ? gesture === 'tap' || gesture === 'double_tap' : raw.button;
+
     const calibratedSample: CalibratedSample = {
       timestamp: raw.timestamp,
       packetIndex: raw.packetIndex,
       accel: { x: ax, y: ay, z: az },
       gyro: { x: gx, y: gy, z: gz },
-      button: raw.button,
+      button: effectiveButton,
+      buttonRawByte: raw.buttonRawByte,
+      buttonPressCount: trikiBle.getButtonPressCount(),
       batteryLevel: raw.batteryLevel,
       rawBytes: raw.rawBytes,
       accelMagnitude: accelMag,

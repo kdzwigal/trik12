@@ -5,7 +5,7 @@
  * Based on Maku-hub/TrikiScope specifications
  */
 
-import { RawSensorSample, BLEConnectionState, LedCommand } from '../types/triki';
+import { RawSensorSample, BLEConnectionState, LedCommand, ButtonMode, LedControlMethod } from '../types/triki';
 
 // Nordic UART Service UUIDs
 export const NUS_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
@@ -71,11 +71,75 @@ export class TrikiBleManager {
   private rateIntervalId: number | null = null;
   private packetSequence: number = 0;
 
-  // Triki hardware scale factors from TrikiScope:
-  // Gyro: 131.0 LSB per deg/s
-  // Accel: 2048.0 LSB per g
-  private gyroScaleTriki: number = (1.0 / 131.0) * (Math.PI / 180.0); // in rad/s
+  // Triki hardware scale factors:
+  // IMU sensor configured for ±2000 dps full-scale range:
+  // Sensitivity = 32768 / 2000 = 16.384 LSB / (deg/s) (131.0 / 8.0).
+  // Fixes 8x discrepancy where full 360° turn resulted in only 44-46°!
+  private gyroScaleTriki: number = (1.0 / 16.384) * (Math.PI / 180.0); // in rad/s
   private accelScaleTriki: number = 1.0 / 2048.0; // in g
+
+  // Button state management
+  public buttonMode: ButtonMode = 'exact-01';
+  public buttonPressCount: number = 0;
+  private lastButtonState: boolean = false;
+  private lastButtonEdgeTime: number = 0;
+  private virtualButtonUntil: number = 0;
+
+  // LED state management
+  public ledControlMethod: LedControlMethod = 'auto';
+  public isLedOn: boolean = false;
+  private isBlinking: boolean = false;
+
+  public setButtonMode(mode: ButtonMode): void {
+    this.buttonMode = mode;
+    this.addLog(`Zmieniono tryb przycisku na: ${mode}`);
+    this.updateState({ buttonMode: mode });
+  }
+
+  public getButtonMode(): ButtonMode {
+    return this.buttonMode;
+  }
+
+  public getButtonPressCount(): number {
+    return this.buttonPressCount;
+  }
+
+  public resetButtonPressCount(): void {
+    this.buttonPressCount = 0;
+    this.updateState({ buttonPressCount: 0 });
+    this.addLog('Zresetowano licznik wciśnięć przycisku do 0');
+  }
+
+  public triggerVirtualButtonPress(durationMs: number = 220): void {
+    this.virtualButtonUntil = performance.now() + durationMs;
+    this.buttonPressCount++;
+    this.updateState({ buttonPressCount: this.buttonPressCount });
+    this.addLog(`Wyzwolono wirtualne wciśnięcie przycisku (${durationMs}ms)`);
+
+    // Give visual haptic pulse on physical Triki LED if connected
+    this.toggleLed(true);
+    setTimeout(() => {
+      this.toggleLed(false);
+    }, durationMs);
+  }
+
+  public setButtonInverted(inverted: boolean): void {
+    this.setButtonMode(inverted ? 'inverted' : 'exact-01');
+  }
+
+  public setLedControlMethod(method: LedControlMethod): void {
+    this.ledControlMethod = method;
+    this.addLog(`Zmieniono metodę sterowania LED na: ${method}`);
+    this.updateState({ ledMethod: method });
+  }
+
+  public getLedControlMethod(): LedControlMethod {
+    return this.ledControlMethod;
+  }
+
+  public getIsLedOn(): boolean {
+    return this.isLedOn;
+  }
 
   private state: BLEConnectionState = {
     status: 'disconnected',
@@ -83,6 +147,10 @@ export class TrikiBleManager {
     packetRateHz: 0,
     latencyMs: 0,
     isWebBluetoothSupported: typeof navigator !== 'undefined' && 'bluetooth' in navigator,
+    buttonMode: 'exact-01',
+    buttonPressCount: 0,
+    ledEnabled: false,
+    ledMethod: 'auto',
     debugLogs: [],
   };
 
@@ -143,29 +211,57 @@ export class TrikiBleManager {
   }
 
   /**
-   * Helper to write buffer with response or without response depending on browser support
+   * Safe GATT Characteristic write helper.
+   * Checks properties (write vs writeWithoutResponse) to avoid DOMException on Web Bluetooth.
    */
   private async writeCharacteristic(
     char: BluetoothRemoteGATTCharacteristic,
     buffer: BufferSource
   ): Promise<void> {
-    if (char.writeValueWithoutResponse) {
+    const anyChar = char as unknown as {
+      properties?: { write?: boolean; writeWithoutResponse?: boolean };
+      writeValueWithResponse?: (val: BufferSource) => Promise<void>;
+      writeValueWithoutResponse?: (val: BufferSource) => Promise<void>;
+      writeValue?: (val: BufferSource) => Promise<void>;
+    };
+
+    const hasWriteWoResp = Boolean(anyChar.properties?.writeWithoutResponse);
+    const hasWriteWithResp = Boolean(anyChar.properties?.write);
+
+    // If characteristic ONLY supports writeWithoutResponse:
+    if (hasWriteWoResp && !hasWriteWithResp && typeof anyChar.writeValueWithoutResponse === 'function') {
       try {
-        await char.writeValueWithoutResponse(buffer);
+        await anyChar.writeValueWithoutResponse(buffer);
         return;
-      } catch {
-        // Fallback to writeValueWithResponse
+      } catch (err) {
+        console.warn('writeValueWithoutResponse rejected, trying writeValueWithResponse:', err);
       }
     }
-    if (char.writeValueWithResponse) {
+
+    // Try standard writeValueWithResponse (Required for Triki 0x6E400004 LED)
+    if (typeof anyChar.writeValueWithResponse === 'function') {
       try {
-        await char.writeValueWithResponse(buffer);
+        await anyChar.writeValueWithResponse(buffer);
         return;
-      } catch {
-        // Fallback to writeValue
+      } catch (err) {
+        console.warn('writeValueWithResponse rejected, fallback to writeValue:', err);
       }
     }
-    await char.writeValue(buffer);
+
+    // Standard Web Bluetooth writeValue
+    if (typeof anyChar.writeValue === 'function') {
+      try {
+        await anyChar.writeValue(buffer);
+        return;
+      } catch (err) {
+        console.warn('writeValue rejected, trying writeValueWithoutResponse:', err);
+      }
+    }
+
+    // Fallback
+    if (typeof anyChar.writeValueWithoutResponse === 'function') {
+      await anyChar.writeValueWithoutResponse(buffer);
+    }
   }
 
   /**
@@ -251,9 +347,39 @@ export class TrikiBleManager {
         throw new Error('Nie znaleziono serwisu Nordic UART (NUS 0x6E400001) w wybranym urządzeniu.');
       }
 
-      // Discover TX Characteristic (Notifications from Triki)
-      this.addLog(`Wyszukiwanie TX Characteristic (Notify): ${NUS_TX_CHARACTERISTIC}...`);
-      this.txCharacteristic = await nusService.getCharacteristic(NUS_TX_CHARACTERISTIC);
+      // Discover Characteristics in NUS service
+      this.addLog('Skanowanie charakterystyk serwisu NUS (0x6E400001)...');
+      try {
+        const anyService = nusService as unknown as {
+          getCharacteristics?: () => Promise<BluetoothRemoteGATTCharacteristic[]>;
+        };
+        if (typeof anyService.getCharacteristics === 'function') {
+          const chars = await anyService.getCharacteristics();
+          this.addLog(`Wykryto ${chars.length} charakterystyk GATT w serwisie NUS:`);
+          for (const c of chars) {
+            const uuidLower = (c as unknown as { uuid: string }).uuid.toLowerCase();
+            const props = (c as unknown as { properties?: Record<string, boolean> }).properties || {};
+            const propList = Object.keys(props).filter((k) => props[k]).join(', ');
+            this.addLog(` • ${uuidLower} [${propList}]`);
+            if (uuidLower.includes('6e400003')) {
+              this.txCharacteristic = c;
+            } else if (uuidLower.includes('6e400002')) {
+              this.rxCharacteristic = c;
+            } else if (uuidLower.includes('6e400004')) {
+              this.ledCharacteristic = c;
+              this.addLog('   -> Zmapowano dedykowaną charakterystykę LED (0x6E400004)!');
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('getCharacteristics enumeration failed, using fallback:', err);
+      }
+
+      // Discover TX Characteristic if not yet assigned
+      if (!this.txCharacteristic) {
+        this.addLog(`Wyszukiwanie TX Characteristic (Notify): ${NUS_TX_CHARACTERISTIC}...`);
+        this.txCharacteristic = await nusService.getCharacteristic(NUS_TX_CHARACTERISTIC);
+      }
       this.txCharacteristic.addEventListener(
         'characteristicvaluechanged',
         this.handleCharacteristicValueChanged
@@ -263,22 +389,26 @@ export class TrikiBleManager {
       await this.txCharacteristic.startNotifications();
       this.addLog('Powiadomienia TX włączone pomyślnie!');
 
-      // Discover RX Characteristic (Commands to Triki)
-      try {
-        this.addLog(`Wyszukiwanie RX Characteristic (Write): ${NUS_RX_CHARACTERISTIC}...`);
-        this.rxCharacteristic = await nusService.getCharacteristic(NUS_RX_CHARACTERISTIC);
-        this.addLog('Znaleziono RX Characteristic.');
-      } catch (e) {
-        console.warn('Triki RX characteristic niedostępna:', e);
-        this.addLog('Ostrzeżenie: RX characteristic niedostępna');
+      // Discover RX Characteristic if not yet assigned
+      if (!this.rxCharacteristic) {
+        try {
+          this.addLog(`Wyszukiwanie RX Characteristic (Write): ${NUS_RX_CHARACTERISTIC}...`);
+          this.rxCharacteristic = await nusService.getCharacteristic(NUS_RX_CHARACTERISTIC);
+          this.addLog('Znaleziono RX Characteristic.');
+        } catch (e) {
+          console.warn('Triki RX characteristic niedostępna:', e);
+          this.addLog('Ostrzeżenie: RX characteristic niedostępna');
+        }
       }
 
-      // Discover LED Characteristic 6e400004
-      try {
-        this.ledCharacteristic = await nusService.getCharacteristic(NUS_LED_CHARACTERISTIC);
-        this.addLog('Znaleziono LED Characteristic (0x6E400004).');
-      } catch {
-        // Optional
+      // Discover LED Characteristic 6e400004 if not yet assigned
+      if (!this.ledCharacteristic) {
+        try {
+          this.ledCharacteristic = await nusService.getCharacteristic(NUS_LED_CHARACTERISTIC);
+          this.addLog('Znaleziono dedykowaną LED Characteristic (0x6E400004).');
+        } catch {
+          this.addLog('Charakterystyka 0x6E400004 nie odpowiada bezpośrednio (będzie używany kanał RX).');
+        }
       }
 
       this.packetsCount = 0;
@@ -405,31 +535,76 @@ export class TrikiBleManager {
     let gy = 0;
     let gz = 0;
     let button = false;
+    let buttonRawByte: number = 0;
     let batteryLevel: number | undefined = undefined;
 
-    // Check if packet matches official TrikiScope format (Header starts with 0x22)
-    if (len >= 14 && dataView.getUint8(0) === 0x22) {
-      // Byte 1: Button state flag (0 = released, non-zero = pressed)
-      const btnByte = dataView.getUint8(1);
-      button = (btnByte & 0x01) !== 0 || btnByte !== 0;
+    // Scan for Triki magic header 0x22 anywhere in the frame (handles any transport offset)
+    let headerOffset = -1;
+    for (let i = 0; i <= len - 8; i++) {
+      if (dataView.getUint8(i) === 0x22) {
+        headerOffset = i;
+        break;
+      }
+    }
 
-      // Bytes 2-7: Gyroscope X, Y, Z (int16_le)
-      const rawGx = dataView.getInt16(2, true);
-      const rawGy = dataView.getInt16(4, true);
-      const rawGz = dataView.getInt16(6, true);
-      gx = rawGx * this.gyroScaleTriki;
-      gy = rawGy * this.gyroScaleTriki;
-      gz = rawGz * this.gyroScaleTriki;
+    if (headerOffset >= 0) {
+      // Byte [headerOffset + 1]: Button state byte
+      const btnByte = dataView.getUint8(headerOffset + 1);
+      buttonRawByte = btnByte;
 
-      // Bytes 8-13: Accelerometer X, Y, Z (int16_le)
-      const rawAx = dataView.getInt16(8, true);
-      const rawAy = dataView.getInt16(10, true);
-      const rawAz = dataView.getInt16(12, true);
-      ax = rawAx * this.accelScaleTriki;
-      ay = rawAy * this.accelScaleTriki;
-      az = rawAz * this.accelScaleTriki;
+      // Decode button state based on configured ButtonMode
+      switch (this.buttonMode) {
+        case 'exact-01':
+          button = btnByte === 0x01;
+          break;
+        case 'inverted':
+          button = btnByte === 0x00;
+          break;
+        case 'bit0':
+          button = (btnByte & 0x01) === 0x01;
+          break;
+        case 'nonzero':
+          button = btnByte > 0;
+          break;
+        case 'manual':
+          // Driven exclusively by UI or click
+          button = false;
+          break;
+        case 'tap':
+          button = false;
+          break;
+        default:
+          button = btnByte === 0x01;
+          break;
+      }
+
+      // Bytes [headerOffset + 2..7]: Gyroscope X, Y, Z (int16_le)
+      if (len >= headerOffset + 8) {
+        const rawGx = dataView.getInt16(headerOffset + 2, true);
+        const rawGy = dataView.getInt16(headerOffset + 4, true);
+        const rawGz = dataView.getInt16(headerOffset + 6, true);
+        gx = rawGx * this.gyroScaleTriki;
+        gy = rawGy * this.gyroScaleTriki;
+        gz = rawGz * this.gyroScaleTriki;
+      }
+
+      // Bytes [headerOffset + 8..13]: Accelerometer X, Y, Z (int16_le)
+      if (len >= headerOffset + 14) {
+        const rawAx = dataView.getInt16(headerOffset + 8, true);
+        const rawAy = dataView.getInt16(headerOffset + 10, true);
+        const rawAz = dataView.getInt16(headerOffset + 12, true);
+        ax = rawAx * this.accelScaleTriki;
+        ay = rawAy * this.accelScaleTriki;
+        az = rawAz * this.accelScaleTriki;
+      }
+
+      // Check for battery byte at offset + 14 if frame length allows
+      if (len > headerOffset + 14) {
+        const bat = dataView.getUint8(headerOffset + 14);
+        if (bat <= 100) batteryLevel = bat;
+      }
     } else {
-      // General 14-byte or 12-byte fallback (in case custom emulator or alternative orientation)
+      // Fallback only if no 0x22 header exists (e.g. raw 12-byte gyro/accel emulator)
       if (len >= 6) {
         const rawAx = dataView.getInt16(0, true);
         const rawAy = dataView.getInt16(2, true);
@@ -442,18 +617,32 @@ export class TrikiBleManager {
         const rawGx = dataView.getInt16(6, true);
         const rawGy = dataView.getInt16(8, true);
         const rawGz = dataView.getInt16(10, true);
-        gx = (rawGx / 131.0) * (Math.PI / 180.0);
-        gy = (rawGy / 131.0) * (Math.PI / 180.0);
-        gz = (rawGz / 131.0) * (Math.PI / 180.0);
+        gx = (rawGx / 16.384) * (Math.PI / 180.0);
+        gy = (rawGy / 16.384) * (Math.PI / 180.0);
+        gz = (rawGz / 16.384) * (Math.PI / 180.0);
       }
-      if (len >= 13) {
-        button = (dataView.getUint8(12) & 0x01) !== 0;
-      }
-      if (len >= 14) {
-        const bat = dataView.getUint8(13);
-        if (bat <= 100) batteryLevel = bat;
+      // CRITICAL: NEVER read byte 12 (Accelerometer Z noise) as button!
+      button = false;
+      buttonRawByte = 0x00;
+    }
+
+    // Apply active virtual click override (from 3D viewer click or UI button)
+    if (this.virtualButtonUntil > timestamp) {
+      button = true;
+    }
+
+    // Debounce & click event rising edge detection (60ms hysteresis)
+    if (button && !this.lastButtonState) {
+      if (timestamp - this.lastButtonEdgeTime > 60) {
+        this.buttonPressCount++;
+        this.lastButtonEdgeTime = timestamp;
+        this.updateState({
+          buttonPressCount: this.buttonPressCount,
+          lastButtonRawByte: buttonRawByte,
+        });
       }
     }
+    this.lastButtonState = button;
 
     this.packetSequence++;
 
@@ -463,32 +652,99 @@ export class TrikiBleManager {
       accel: { x: ax, y: ay, z: az },
       gyro: { x: gx, y: gy, z: gz },
       button,
+      buttonRawByte,
       batteryLevel,
       rawBytes,
     };
   }
 
   /**
-   * Toggle LED on characteristic 6e400004 or via command
+   * Toggle LED on puck.
+   * Supports:
+   * - Characteristic 0x6E400004 (TrikiScope official reverse-engineered LED control)
+   * - Fallback to NUS RX (0x6E400002) with single byte 0x01/0x00 or vendor payload
    */
-  public async toggleLed(enable: boolean): Promise<void> {
-    const val = new Uint8Array([enable ? 0x01 : 0x00]);
-    if (this.ledCharacteristic) {
+  public async toggleLed(enable: boolean, explicitMethod?: LedControlMethod): Promise<boolean> {
+    const method = explicitMethod || this.ledControlMethod;
+    const byteVal = new Uint8Array([enable ? 0x01 : 0x00]);
+    let success = false;
+    let targetsUsed: string[] = [];
+
+    // Method 1: Dedicated characteristic 6e400004
+    if ((method === 'char-6e400004' || method === 'auto' || method === 'both') && this.ledCharacteristic) {
       try {
-        await this.writeCharacteristic(this.ledCharacteristic, val);
-        this.addLog(`Ustawiono diodę LED na: ${enable ? 'WŁĄCZONA' : 'WYŁĄCZONA'}`);
-        return;
+        await this.writeCharacteristic(this.ledCharacteristic, byteVal);
+        targetsUsed.push('char 0x6E400004');
+        success = true;
       } catch (err) {
-        console.warn('Błąd zapisu do charakterystyki LED:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.addLog(`Błąd zapisu do 0x6E400004: ${msg}`);
       }
     }
 
-    if (this.rxCharacteristic) {
+    // Method 2: NUS RX single byte 0x01 / 0x00
+    if ((method === 'nus-rx-01' || method === 'both' || (method === 'auto' && !success)) && this.rxCharacteristic) {
       try {
-        await this.writeCharacteristic(this.rxCharacteristic, val);
+        await this.writeCharacteristic(this.rxCharacteristic, byteVal);
+        targetsUsed.push('NUS RX (0x01/0x00)');
+        success = true;
       } catch (err) {
-        console.warn('Błąd zapisu do RX dla LED:', err);
+        const msg = err instanceof Error ? err.message : String(err);
+        this.addLog(`Błąd zapisu byte do RX: ${msg}`);
       }
+    }
+
+    // Method 3: NUS RX vendor packet [0x20, 0x02, state]
+    if (method === 'nus-rx-vendor' && this.rxCharacteristic) {
+      try {
+        const vendorPayload = new Uint8Array([0x20, 0x02, enable ? 0x01 : 0x00]);
+        await this.writeCharacteristic(this.rxCharacteristic, vendorPayload);
+        targetsUsed.push('NUS RX (Vendor 0x2002)');
+        success = true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.addLog(`Błąd zapisu vendor payload do RX: ${msg}`);
+      }
+    }
+
+    if (success) {
+      this.isLedOn = enable;
+      const targetStr = targetsUsed.join(' + ');
+      this.addLog(`Dioda LED: ${enable ? 'WŁĄCZONA (0x01)' : 'WYŁĄCZONA (0x00)'} [${targetStr}]`);
+      this.updateState({
+        ledEnabled: enable,
+        lastCommandStatus: `Dioda LED ${enable ? 'WŁ' : 'WYŁ'} (${targetStr})`,
+      });
+      return true;
+    } else {
+      this.addLog(`Nie udało się zmienić stanu LED (${method}) - brak połączonej charakterystyki.`);
+      this.updateState({
+        lastCommandStatus: `Błąd zapisu LED (${method})`,
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Diagnostic test: Blinks physical LED 3 times to immediately verify hardware reaction
+   */
+  public async testBlink(times: number = 3): Promise<void> {
+    if (this.isBlinking) return;
+    this.isBlinking = true;
+    this.addLog(`[LED Test] Rozpoczęcie sekwencji migania LED (${times} powtórzeń)...`);
+
+    try {
+      for (let i = 0; i < times; i++) {
+        await this.toggleLed(true);
+        await new Promise((r) => setTimeout(r, 220));
+        await this.toggleLed(false);
+        await new Promise((r) => setTimeout(r, 220));
+      }
+      this.addLog('[LED Test] Sekwencja testowa zakończona.');
+    } catch (err) {
+      this.addLog(`[LED Test] Błąd w trakcie migania: ${err}`);
+    } finally {
+      this.isBlinking = false;
     }
   }
 
@@ -496,18 +752,17 @@ export class TrikiBleManager {
    * Send RGB LED command to Triki puck
    */
   public async sendLedCommand(cmd: LedCommand): Promise<void> {
-    if (this.ledCharacteristic) {
-      const isBright = cmd.brightness > 50 && (cmd.r > 50 || cmd.g > 50 || cmd.b > 50);
-      await this.toggleLed(isBright);
-      return;
-    }
+    const isBright = cmd.brightness > 30 && (cmd.r > 30 || cmd.g > 30 || cmd.b > 30);
+    // 1. Toggle physical LED on puck
+    await this.toggleLed(isBright);
 
+    // 2. Also try writing 5-byte RGB buffer to RX if supported by firmware
     if (this.rxCharacteristic) {
       try {
         const buffer = new Uint8Array([0x02, cmd.r, cmd.g, cmd.b, cmd.brightness]);
         await this.writeCharacteristic(this.rxCharacteristic, buffer);
-      } catch (err) {
-        console.warn('Błąd wysyłania komendy LED:', err);
+      } catch {
+        // Optional
       }
     }
   }

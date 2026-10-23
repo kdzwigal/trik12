@@ -10,6 +10,8 @@ import {
   LayoutMode,
   ThemeMode,
   SensorCalibration,
+  FusionFilterMode,
+  FilterConfig,
 } from './types/triki';
 import { trikiBle } from './services/bleManager';
 import { sensorPipeline } from './services/sensorPipeline';
@@ -18,6 +20,7 @@ import { SkiaCanvasOscilloscope } from './components/SkiaCanvasOscilloscope';
 import { AviationHorizon } from './components/AviationHorizon';
 import { SignalInspector } from './components/SignalInspector';
 import { ReactNativeArchitectureModal } from './components/ReactNativeArchitectureModal';
+import { FilterSettingsModal } from './components/FilterSettingsModal';
 import {
   Bluetooth,
   BluetoothOff,
@@ -29,6 +32,7 @@ import {
   CheckCircle2,
   AlertCircle,
   HelpCircle,
+  Lightbulb,
 } from 'lucide-react';
 
 export default function App() {
@@ -40,12 +44,18 @@ export default function App() {
   const [isCalibrating, setIsCalibrating] = useState<boolean>(false);
   const [showWebBleHelp, setShowWebBleHelp] = useState<boolean>(false);
   const [showDebugLogs, setShowDebugLogs] = useState<boolean>(false);
-  const [ledOn, setLedOn] = useState<boolean>(false);
+  const [showFilterSettings, setShowFilterSettings] = useState<boolean>(false);
+  const [filterConfig, setFilterConfig] = useState<FilterConfig>(sensorPipeline.getFilterConfig());
+  const [ledOn, setLedOn] = useState<boolean>(trikiBle.getIsLedOn());
+  const [filterMode, setFilterMode] = useState<FusionFilterMode>('complementary');
 
   // Subscribe to BLE events & sensor processing pipeline
   useEffect(() => {
     trikiBle.onStateChange((state) => {
       setBleState(state);
+      if (state.ledEnabled !== undefined) {
+        setLedOn(state.ledEnabled);
+      }
     });
 
     trikiBle.onPacket((rawSample) => {
@@ -60,8 +70,14 @@ export default function App() {
       }
     });
 
+    const unsubscribeFilter = sensorPipeline.onFilterConfigChange((cfg) => {
+      setFilterConfig(cfg);
+      setFilterMode(cfg.mode);
+    });
+
     return () => {
       unsubscribeCal();
+      unsubscribeFilter();
     };
   }, []);
 
@@ -84,6 +100,7 @@ export default function App() {
 
   const handleResetOrientation = () => {
     sensorPipeline.resetOrientation();
+    sensorPipeline.tare();
   };
 
   const handleSendStartCommand = async () => {
@@ -94,6 +111,11 @@ export default function App() {
     const nextState = !ledOn;
     setLedOn(nextState);
     await trikiBle.toggleLed(nextState);
+  };
+
+  const handleTestBlink = async () => {
+    await trikiBle.testBlink(3);
+    setLedOn(trikiBle.getIsLedOn());
   };
 
   const isEink = themeMode === 'eink';
@@ -289,6 +311,24 @@ export default function App() {
             <span>Częstotliwość: {bleState.packetRateHz.toFixed(1)} Hz</span>
             <span aria-hidden="true">·</span>
             <span>Pakiety: {bleState.packetsReceived}</span>
+            {latestSample && (
+              <>
+                <span aria-hidden="true">·</span>
+                <span
+                  className={`px-2 py-0.5 rounded font-bold transition-colors ${
+                    latestSample.button
+                      ? isEink
+                        ? 'bg-black text-white'
+                        : 'bg-emerald-600 text-white shadow-xs'
+                      : isEink
+                      ? 'bg-zinc-200 text-zinc-700'
+                      : 'bg-slate-200 text-slate-600'
+                  }`}
+                >
+                  Przycisk: {latestSample.button ? '● WCIŚNIĘTY' : '○ Puszczony'} (Klik: {latestSample.buttonPressCount})
+                </span>
+              </>
+            )}
             {latestSample?.batteryLevel !== undefined && (
               <>
                 <span aria-hidden="true">·</span>
@@ -315,18 +355,43 @@ export default function App() {
                 <span aria-hidden="true">·</span>
                 <button
                   onClick={handleToggleLed}
-                  className={`flex items-center gap-1 px-2 py-0.5 rounded text-[11px] border ${
+                  className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-bold border transition-colors shadow-xs ${
                     ledOn
-                      ? 'bg-amber-500 text-white border-amber-600'
-                      : 'border-slate-300 text-slate-700 hover:bg-slate-200'
+                      ? 'bg-amber-500 text-white border-amber-600 ring-1 ring-amber-300'
+                      : isEink
+                      ? 'border-black text-black bg-white hover:bg-zinc-100'
+                      : 'border-slate-300 text-slate-700 hover:bg-slate-200 bg-white'
                   }`}
-                  title="Włącz/Wyłącz diodę LED na krążku"
+                  title="Włącz lub wyłącz fizyczną diodę LED na krążku"
                 >
-                  LED: {ledOn ? 'ON' : 'OFF'}
+                  <Lightbulb className={`w-3.5 h-3.5 ${ledOn ? 'fill-white text-white' : 'text-slate-400'}`} />
+                  <span>LED: {ledOn ? 'ON' : 'OFF'}</span>
+                </button>
+                <button
+                  onClick={handleTestBlink}
+                  className="text-[10px] px-1.5 py-0.5 rounded border border-amber-300 hover:bg-amber-100 text-amber-800"
+                  title="Mignij 3 razy fizyczną diodą LED"
+                >
+                  Blink 3x
                 </button>
                 <span aria-hidden="true">·</span>
               </>
             )}
+
+            {/* Filter Settings Trigger Button */}
+            <button
+              onClick={() => setShowFilterSettings(true)}
+              className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded text-[11px] font-semibold border transition-colors ${
+                isEink
+                  ? 'border-black bg-white text-black hover:bg-black hover:text-white'
+                  : 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 shadow-xs'
+              }`}
+              title="Otwórz panel edycji parametrów filtracji sensorów IMU"
+            >
+              <Sliders className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Edycja filtracji</span>
+            </button>
+            <span aria-hidden="true">·</span>
 
             {/* Quick Calibration Trigger */}
             <button
@@ -503,6 +568,9 @@ export default function App() {
                 latestSample={latestSample}
                 theme={themeMode}
                 onResetOrientation={handleResetOrientation}
+                filterMode={filterMode}
+                onFilterModeChange={setFilterMode}
+                onOpenFilterSettings={() => setShowFilterSettings(true)}
               />
             </div>
 
@@ -535,6 +603,9 @@ export default function App() {
                   latestSample={latestSample}
                   theme={themeMode}
                   onResetOrientation={handleResetOrientation}
+                  filterMode={filterMode}
+                  onFilterModeChange={setFilterMode}
+                  onOpenFilterSettings={() => setShowFilterSettings(true)}
                 />
               </div>
               <div className="lg:col-span-6">
@@ -575,6 +646,16 @@ export default function App() {
           />
         )}
       </main>
+
+      {/* Sensor Fusion & LPF Filter Configuration Modal */}
+      <FilterSettingsModal
+        isOpen={showFilterSettings}
+        onClose={() => setShowFilterSettings(false)}
+        config={filterConfig}
+        onConfigChange={(partial) => sensorPipeline.updateFilterConfig(partial)}
+        latestSample={latestSample}
+        theme={themeMode}
+      />
 
       {/* Clean Engineering Footer */}
       <footer

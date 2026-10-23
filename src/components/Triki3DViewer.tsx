@@ -3,27 +3,34 @@
  * Built with Three.js according to skill directives:
  * - Multi-part procedural model (puck hull, grip ring, LED halo, concave button, USB-C port, coordinate axes)
  * - Studio PBR lighting & RoomEnvironment reflection
- * - Zero GC in render loop (reusable math objects)
- * - Ergonomic collapsible bottom dock
+ * - Mathematically correct full 360-degree range of motion mapping (Pitch, Roll, Yaw)
+ * - High-precision tactile button press tracking and inversion settings
  */
 
 import React, { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
-import { CalibratedSample, ThemeMode, LedCommand } from '../types/triki';
+import { CalibratedSample, ThemeMode, LedCommand, FusionFilterMode, ButtonMode, LedControlMethod } from '../types/triki';
 import { trikiBle } from '../services/bleManager';
-import { RotateCcw, Eye, Sparkles, Layers, Sliders } from 'lucide-react';
+import { sensorPipeline } from '../services/sensorPipeline';
+import { RotateCcw, Eye, Sparkles, Layers, MousePointerClick, RefreshCw, Sliders, Lightbulb } from 'lucide-react';
 
 interface Triki3DViewerProps {
   latestSample: CalibratedSample | null;
   theme: ThemeMode;
   onResetOrientation: () => void;
+  filterMode?: FusionFilterMode;
+  onFilterModeChange?: (mode: FusionFilterMode) => void;
+  onOpenFilterSettings?: () => void;
 }
 
 export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
   latestSample,
   theme,
   onResetOrientation,
+  filterMode = 'complementary',
+  onFilterModeChange,
+  onOpenFilterSettings,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const sampleRef = useRef<CalibratedSample | null>(latestSample);
@@ -33,6 +40,20 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
   const [explodedView, setExplodedView] = useState(0);
   const [dockExpanded, setDockExpanded] = useState(true);
   const [activeLedColor, setActiveLedColor] = useState('#00e5ff');
+  const activeLedColorRef = useRef(activeLedColor);
+  activeLedColorRef.current = activeLedColor;
+
+  // LED and filtering state
+  const [isLedOn, setIsLedOn] = useState<boolean>(trikiBle.getIsLedOn());
+  const [ledMethod, setLedMethod] = useState<LedControlMethod>(trikiBle.getLedControlMethod());
+  const [swapPitchRoll, setSwapPitchRoll] = useState<boolean>(sensorPipeline.getSwapPitchRoll());
+
+  // Axis and button inversion states (Roll & Yaw inverted by default on current axes)
+  const [invertPitch, setInvertPitch] = useState(false);
+  const [invertRoll, setInvertRoll] = useState(true);
+  const [invertYaw, setInvertYaw] = useState(true);
+  const [buttonMode, setButtonMode] = useState<ButtonMode>(trikiBle.getButtonMode());
+  const [currentFilter, setCurrentFilter] = useState<FusionFilterMode>(filterMode);
 
   // Internal references to update in render loop without React re-renders
   const sceneElementsRef = useRef<{
@@ -50,7 +71,6 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     };
   } | null>(null);
 
-  // Keep theme in ref for lighting/material updates
   const themeRef = useRef(theme);
   themeRef.current = theme;
 
@@ -162,7 +182,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     contactShadow.position.y = -1.19;
     scene.add(contactShadow);
 
-    // 6. Triki Puck Procedural Model (THREE.Group with 5 distinct parts)
+    // 6. Triki Puck Procedural Model (THREE.Group)
     const puckGroup = new THREE.Group();
     scene.add(puckGroup);
 
@@ -199,14 +219,14 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
       metalness: 0.1,
     });
 
-    // Part 1: Main Puck Body (cylinder with bevel feel)
+    // Part 1: Main Puck Body
     const hullGeo = new THREE.CylinderGeometry(1.25, 1.25, 0.45, 64);
     const hullMesh = new THREE.Mesh(hullGeo, hullMat);
     hullMesh.castShadow = true;
     hullMesh.receiveShadow = true;
     puckGroup.add(hullMesh);
 
-    // Part 2: Textured Grip Ring (perimetric rubber band)
+    // Part 2: Textured Grip Ring
     const gripGeo = new THREE.CylinderGeometry(1.28, 1.28, 0.26, 64);
     const gripMesh = new THREE.Mesh(gripGeo, gripMat);
     gripMesh.castShadow = true;
@@ -219,14 +239,14 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     bottomBase.position.y = -0.24;
     puckGroup.add(bottomBase);
 
-    // Part 4: RGB LED Halo Ring (around the center button)
+    // Part 4: RGB LED Halo Ring
     const ledGeo = new THREE.TorusGeometry(0.82, 0.045, 16, 64);
     const ledRingMesh = new THREE.Mesh(ledGeo, ledMat);
     ledRingMesh.rotation.x = Math.PI / 2;
     ledRingMesh.position.y = 0.23;
     puckGroup.add(ledRingMesh);
 
-    // Part 5: Concave Center Tactile Button
+    // Part 5: Concave Center Tactile Button (Resting at y=0.22)
     const buttonGeo = new THREE.CylinderGeometry(0.72, 0.72, 0.12, 48);
     const buttonMesh = new THREE.Mesh(buttonGeo, buttonMat);
     buttonMesh.position.y = 0.22;
@@ -254,8 +274,10 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
       },
     };
 
-    // 7. Interactive Orbit (Pointer drag without external controls dependency)
+    // 7. Interactive Orbit (Pointer drag) & 3D Raycast Click
     let isDragging = false;
+    let pointerStartX = 0;
+    let pointerStartY = 0;
     let prevMouseX = 0;
     let prevMouseY = 0;
     let manualRotY = 0;
@@ -263,6 +285,8 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
 
     const onPointerDown = (e: PointerEvent) => {
       isDragging = true;
+      pointerStartX = e.clientX;
+      pointerStartY = e.clientY;
       prevMouseX = e.clientX;
       prevMouseY = e.clientY;
     };
@@ -283,8 +307,24 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
       camera.lookAt(0, 0, 0);
     };
 
-    const onPointerUp = () => {
+    const onPointerUp = (e: PointerEvent) => {
       isDragging = false;
+      const moveDist = Math.hypot(e.clientX - pointerStartX, e.clientY - pointerStartY);
+      if (moveDist < 6) {
+        // Detected user click on canvas - check if clicked on 3D puck
+        const rect = domElement.getBoundingClientRect();
+        const mouseX = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const mouseY = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        const raycaster = new THREE.Raycaster();
+        raycaster.setFromCamera(new THREE.Vector2(mouseX, mouseY), camera);
+        const elements = sceneElementsRef.current;
+        if (elements) {
+          const intersects = raycaster.intersectObjects([elements.puckGroup], true);
+          if (intersects.length > 0) {
+            trikiBle.triggerVirtualButtonPress(250);
+          }
+        }
+      }
     };
 
     const domElement = renderer.domElement;
@@ -292,7 +332,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onPointerUp);
 
-    // Handle Resize with ResizeObserver
+    // Handle Resize
     const resizeObserver = new ResizeObserver((entries) => {
       for (const entry of entries) {
         const w = entry.contentRect.width;
@@ -306,8 +346,10 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     });
     resizeObserver.observe(container);
 
-    // 8. Animation & Telemetry Render Loop (Zero memory allocations)
+    // 8. Animation & Telemetry Render Loop
+    // Full 360-degree Euler mapping to Three.js coordinate system
     const _targetQuat = new THREE.Quaternion();
+    const _targetEuler = new THREE.Euler(0, 0, 0, 'YXZ');
     let animFrameId = 0;
 
     const tick = () => {
@@ -315,21 +357,69 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
       const elements = sceneElementsRef.current;
 
       if (elements) {
-        if (sample && sample.quaternion) {
-          // Map Madgwick quaternion to Three.js orientation
-          // Note coordinate conversion: IMU frame to Three.js world frame
-          _targetQuat.set(
-            sample.quaternion.x,
-            sample.quaternion.z,
-            -sample.quaternion.y,
-            sample.quaternion.w
-          );
-          elements.puckGroup.quaternion.slerp(_targetQuat, 0.25);
+        if (sample && sample.euler) {
+          const pitch = Number.isFinite(sample.euler.pitch) ? sample.euler.pitch : 0;
+          const roll = Number.isFinite(sample.euler.roll) ? sample.euler.roll : 0;
+          const yaw = Number.isFinite(sample.euler.yaw) ? sample.euler.yaw : 0;
+
+          // Convert to Three.js coordinates:
+          // In Three.js: Puck sits flat on ground with button facing UP (+Y)
+          // Pitch = rotation around X (tilting front/back)
+          // Yaw = rotation around Y (spinning clockwise/counterclockwise)
+          // Roll = rotation around Z (tilting left/right)
+          const radPitch = THREE.MathUtils.degToRad(pitch);
+          const radYaw = THREE.MathUtils.degToRad(-yaw);
+          const radRoll = THREE.MathUtils.degToRad(-roll);
+
+          _targetEuler.set(radPitch, radYaw, radRoll, 'YXZ');
+          _targetQuat.setFromEuler(_targetEuler);
+
+          // Smooth interpolation without jerky jumps
+          elements.puckGroup.quaternion.slerp(_targetQuat, 0.35);
         }
 
-        // Tactile button depression animation when clicked on hardware
-        const targetBtnY = sample && sample.button ? 0.17 : elements.buttonTopY;
-        elements.buttonMesh.position.y += (targetBtnY - elements.buttonMesh.position.y) * 0.35;
+        // Tactile button depression animation:
+        // When pressed: dips to 0.16; when released: returns to 0.22
+        const isPressed = sample ? Boolean(sample.button) : false;
+        const targetBtnY = isPressed ? 0.16 : 0.22;
+        elements.buttonMesh.position.y += (targetBtnY - elements.buttonMesh.position.y) * 0.4;
+
+        // Visual tactile button feedback (color and emissive glow on depression)
+        const btnMat = elements.buttonMesh.material as THREE.MeshStandardMaterial;
+        if (btnMat) {
+          if (isPressed) {
+            if (themeRef.current === 'eink') {
+              btnMat.color.setHex(0x000000);
+            } else {
+              btnMat.color.setHex(0x0284c7);
+              btnMat.emissive.setHex(0x0284c7);
+              btnMat.emissiveIntensity = 0.8;
+            }
+          } else {
+            if (themeRef.current === 'eink') {
+              btnMat.color.setHex(0x444444);
+            } else {
+              btnMat.color.setHex(0x334155);
+              btnMat.emissive.setHex(0x000000);
+              btnMat.emissiveIntensity = 0;
+            }
+          }
+        }
+
+        // Visual feedback for physical and virtual Triki LED ring
+        const ledRingMat = elements.ledRingMesh.material as THREE.MeshStandardMaterial;
+        if (ledRingMat) {
+          const isLedLit = trikiBle.getIsLedOn();
+          if (isLedLit) {
+            ledRingMat.color.set(activeLedColorRef.current);
+            ledRingMat.emissive.set(activeLedColorRef.current);
+            ledRingMat.emissiveIntensity = 2.8;
+          } else {
+            ledRingMat.color.set(themeRef.current === 'eink' ? 0x000000 : 0x0284c7);
+            ledRingMat.emissive.setHex(0x000000);
+            ledRingMat.emissiveIntensity = 0.0;
+          }
+        }
       }
 
       renderer.render(scene, camera);
@@ -360,7 +450,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     };
   }, []);
 
-  // Sync theme changes to materials & background
+  // Sync theme changes
   useEffect(() => {
     const isEink = theme === 'eink';
     const elements = sceneElementsRef.current;
@@ -405,45 +495,166 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     }
   }, [explodedView]);
 
-  // Handle LED color change & send BLE command
+  // Sync axis inversions to sensor pipeline
+  const handleTogglePitch = () => {
+    const next = !invertPitch;
+    setInvertPitch(next);
+    sensorPipeline.setInversions(next, invertRoll, invertYaw);
+  };
+
+  const handleToggleRoll = () => {
+    const next = !invertRoll;
+    setInvertRoll(next);
+    sensorPipeline.setInversions(invertPitch, next, invertYaw);
+  };
+
+  const handleToggleYaw = () => {
+    const next = !invertYaw;
+    setInvertYaw(next);
+    sensorPipeline.setInversions(invertPitch, invertRoll, next);
+  };
+
+  const handleButtonModeChange = (mode: ButtonMode) => {
+    setButtonMode(mode);
+    trikiBle.setButtonMode(mode);
+  };
+
+  const handleSimulateClick = () => {
+    trikiBle.triggerVirtualButtonPress(250);
+  };
+
+  const handleResetClicks = () => {
+    trikiBle.resetButtonPressCount();
+  };
+
+  const handleFilterChange = (mode: FusionFilterMode) => {
+    setCurrentFilter(mode);
+    sensorPipeline.setFilterMode(mode);
+    if (onFilterModeChange) onFilterModeChange(mode);
+  };
+
+  const handleToggleSwapPitchRoll = () => {
+    const next = !swapPitchRoll;
+    setSwapPitchRoll(next);
+    sensorPipeline.setSwapPitchRoll(next);
+  };
+
+  const handleToggleLed = async () => {
+    const next = !isLedOn;
+    setIsLedOn(next);
+    await trikiBle.toggleLed(next, ledMethod);
+  };
+
+  const handleTestBlink = async () => {
+    await trikiBle.testBlink(3);
+    setIsLedOn(trikiBle.getIsLedOn());
+  };
+
+  const handleLedMethodChange = (method: LedControlMethod) => {
+    setLedMethod(method);
+    trikiBle.setLedControlMethod(method);
+  };
+
   const handleColorSelect = (colorHex: string, r: number, g: number, b: number) => {
     setActiveLedColor(colorHex);
     const cmd: LedCommand = { r, g, b, brightness: 255 };
     trikiBle.sendLedCommand(cmd);
+    setIsLedOn(true);
   };
+
+  // Keep isLedOn and swapPitchRoll in sync with BLE and pipeline
+  useEffect(() => {
+    const unsubscribeCal = sensorPipeline.onFilterConfigChange((cfg) => {
+      setSwapPitchRoll(cfg.swapPitchRoll);
+      setCurrentFilter(cfg.mode);
+      setInvertPitch(cfg.invertPitch);
+      setInvertRoll(cfg.invertRoll);
+      setInvertYaw(cfg.invertYaw);
+    });
+
+    const unsubscribeBle = trikiBle.onStateChange((state) => {
+      if (state.ledEnabled !== undefined) {
+        setIsLedOn(state.ledEnabled);
+      }
+    });
+
+    return () => {
+      unsubscribeCal();
+    };
+  }, []);
 
   const isEink = theme === 'eink';
 
   return (
-    <div className="relative w-full h-full min-h-[420px] rounded-xl overflow-hidden select-none">
+    <div className="relative w-full h-full min-h-[460px] rounded-xl overflow-hidden select-none">
       {/* Three.js canvas mount container */}
       <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
 
       {/* Top Spec Badge / Orientation HUD */}
       <div
-        className={`absolute top-4 left-4 text-xs font-mono px-3 py-2 rounded-lg pointer-events-none transition-colors ${
+        className={`absolute top-4 left-4 text-xs font-mono px-3.5 py-2.5 rounded-lg transition-colors ${
           isEink
             ? 'bg-black text-white border border-black shadow-none'
-            : 'bg-white/90 text-slate-800 border border-slate-200 shadow-sm backdrop-blur-sm'
+            : 'bg-white/95 text-slate-800 border border-slate-200 shadow-sm backdrop-blur-sm'
         }`}
       >
-        <div className="font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-1">
-          Żabka Triki (CAP001)
+        <div className="flex items-center justify-between gap-4 font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-1">
+          <span>Żabka Triki (CAP001)</span>
+          <div className="flex items-center gap-1.5 pointer-events-auto">
+            {swapPitchRoll && (
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-normal" title="Zamiana Pitch ⇄ Roll na stałe włączona">
+                P⇄R na stałe
+              </span>
+            )}
+            {(invertRoll || invertYaw) && (
+              <span className="text-[10px] bg-sky-100 text-sky-800 px-1.5 py-0.2 rounded font-normal" title="Odwrócenie obecnych osi Yaw i Roll aktywne">
+                R/Y odwrócone
+              </span>
+            )}
+            {onOpenFilterSettings && (
+              <button
+                onClick={onOpenFilterSettings}
+                className="text-[10px] bg-sky-100 hover:bg-sky-200 text-sky-800 font-semibold px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                title="Otwórz panel edycji filtracji sensorów"
+              >
+                <Sliders className="w-3 h-3" />
+                <span>Edycja filtrów</span>
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex gap-3 tabular-nums">
-          <span>R: {latestSample ? latestSample.euler.roll.toFixed(1) : '0.0'}°</span>
-          <span>P: {latestSample ? latestSample.euler.pitch.toFixed(1) : '0.0'}°</span>
-          <span>Y: {latestSample ? latestSample.euler.yaw.toFixed(1) : '0.0'}°</span>
+          <span>R: <strong className="text-sky-600">{latestSample ? latestSample.euler.roll.toFixed(1) : '0.0'}°</strong></span>
+          <span>P: <strong className="text-indigo-600">{latestSample ? latestSample.euler.pitch.toFixed(1) : '0.0'}°</strong></span>
+          <span>Y: <strong className="text-amber-600">{latestSample ? latestSample.euler.yaw.toFixed(1) : '0.0'}°</strong></span>
         </div>
-        <div className="flex items-center gap-2 mt-1 text-[11px] opacity-80">
-          <span>Przycisk: {latestSample?.button ? 'WCIŚNIĘTY' : 'Puszczony'}</span>
-          <span>·</span>
+        <div className="flex items-center gap-2 mt-1.5 text-[11px] flex-wrap pointer-events-none">
+          <span
+            className={`font-semibold px-2 py-0.5 rounded transition-colors ${
+              latestSample?.button
+                ? isEink
+                  ? 'bg-black text-white'
+                  : 'bg-emerald-600 text-white shadow-xs'
+                : isEink
+                ? 'bg-zinc-200 text-zinc-700'
+                : 'bg-slate-100 text-slate-500 border border-slate-200'
+            }`}
+          >
+            {latestSample?.button ? '● WCIŚNIĘTY' : '○ PUSZCZONY'}
+          </span>
+          <span className="opacity-50">·</span>
+          <span className={`px-1.5 py-0.2 rounded font-semibold text-[10px] ${isLedOn ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-400'}`}>
+            LED: {isLedOn ? '● ŚWIECI' : '○ WYŁĄCZONA'}
+          </span>
+          <span className="opacity-50">·</span>
+          <span>Kliknięcia: {latestSample?.buttonPressCount ?? 0}</span>
+          <span className="opacity-50">·</span>
           <span>Gest: {latestSample?.gesture || 'idle'}</span>
         </div>
       </div>
 
-      {/* Ergonomic Collapsible Bottom Control Dock (Zero Viewport Occlusion) */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-[92%] max-w-[560px] z-10 transition-all">
+      {/* Ergonomic Collapsible Bottom Control Dock */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-[94%] max-w-[650px] z-10 transition-all">
         {/* Collapse toggle tab */}
         <div className="flex justify-center mb-1">
           <button
@@ -454,74 +665,256 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                 : 'bg-white text-slate-700 border-slate-200 hover:text-slate-900 shadow-xs'
             }`}
           >
-            {dockExpanded ? '▾ Zwiń kontrolki 3D' : '▴ Narzędzia 3D & LED'}
+            {dockExpanded ? '▾ Zwiń narzędzia LED & sensorów' : '▴ Narzędzia LED, filtracja & przycisk'}
           </button>
         </div>
 
         {dockExpanded && (
           <div
-            className={`p-3 rounded-xl border flex flex-col gap-3 transition-colors ${
+            className={`p-3.5 rounded-xl border flex flex-col gap-3 transition-colors ${
               isEink
                 ? 'bg-white border-2 border-black text-black shadow-none'
                 : 'bg-white text-slate-800 border-slate-200 shadow-md'
             }`}
           >
+            {/* Row 1: Tare & Filter mode selection */}
             <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
-              {/* Reset Orientation */}
-              <button
-                onClick={onResetOrientation}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                  isEink
-                    ? 'border border-black hover:bg-black hover:text-white'
-                    : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
-                }`}
-                title="Zeruj pozycję bazową sensora"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Zeruj bazę</span>
-              </button>
-
-              {/* Toggle Axes */}
-              <button
-                onClick={() => setShowAxes(!showAxes)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                  showAxes
-                    ? isEink
-                      ? 'bg-black text-white'
-                      : 'bg-sky-600 text-white'
-                    : isEink
-                    ? 'border border-black'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Osie XYZ</span>
-              </button>
-
-              {/* Exploded View Slider */}
               <div className="flex items-center gap-2">
-                <Layers className="w-3.5 h-3.5 opacity-70" />
-                <span className="text-[11px] font-mono">Rozstrzelenie:</span>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={explodedView}
-                  onChange={(e) => setExplodedView(parseFloat(e.target.value))}
-                  className="w-20 accent-sky-600 cursor-pointer"
-                />
+                <button
+                  onClick={onResetOrientation}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-colors ${
+                    isEink
+                      ? 'bg-black text-white hover:bg-zinc-800'
+                      : 'bg-sky-600 text-white hover:bg-sky-700 shadow-xs'
+                  }`}
+                  title="Ustawia obecną pozycję jako bazowe (0, 0, 0)"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Zeruj bazę (Tare 0,0,0)</span>
+                </button>
+
+                <button
+                  onClick={() => setShowAxes(!showAxes)}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-medium border text-[11px] transition-colors ${
+                    showAxes
+                      ? isEink ? 'bg-black text-white' : 'bg-slate-100 text-slate-900 border-slate-300'
+                      : 'border-slate-200 text-slate-600'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Osie</span>
+                </button>
+
+                {onOpenFilterSettings && (
+                  <button
+                    onClick={onOpenFilterSettings}
+                    className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-semibold border text-[11px] transition-colors ${
+                      isEink
+                        ? 'border-black hover:bg-black hover:text-white'
+                        : 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                    }`}
+                  >
+                    <Sliders className="w-3.5 h-3.5" />
+                    <span>Edycja filtrów...</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Filter Mode Selector */}
+              <div className="flex items-center gap-1 border rounded-lg p-0.5 text-[11px]">
+                <button
+                  onClick={() => handleFilterChange('complementary')}
+                  className={`px-2 py-1 rounded font-medium transition-colors ${
+                    currentFilter === 'complementary'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Płynny, pełny zakres 360° (polecany dla Triki)"
+                >
+                  Komplementarny (360°)
+                </button>
+                <button
+                  onClick={() => handleFilterChange('madgwick')}
+                  className={`px-2 py-1 rounded font-medium transition-colors ${
+                    currentFilter === 'madgwick'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                  title="Algorytm Madgwick AHRS"
+                >
+                  Madgwick AHRS
+                </button>
               </div>
             </div>
 
-            {/* LED Color selector */}
-            {!isEink && (
-              <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                <span className="flex items-center gap-1.5 text-slate-600 font-medium">
-                  <Sparkles className="w-3.5 h-3.5 text-cyan-600" />
-                  Kolor LED Triki (BLE NUS):
+            {/* Row 2: NEW LED CONTROL SECTION (Fixes user issue: "nie dziala zapalanie diody led") */}
+            <div
+              className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 flex-wrap text-[11px] ${
+                isEink ? 'bg-zinc-100 border-black' : 'bg-amber-50/70 border-amber-200'
+              }`}
+            >
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                  <Lightbulb className={`w-4 h-4 ${isLedOn ? 'text-amber-500 fill-amber-400' : 'text-slate-400'}`} />
+                  Sterowanie Diodą LED:
                 </span>
+
+                {/* Big Clear LED Toggle Button */}
+                <button
+                  onClick={handleToggleLed}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-all shadow-xs ${
+                    isLedOn
+                      ? 'bg-amber-500 text-white hover:bg-amber-600 ring-2 ring-amber-300'
+                      : isEink
+                      ? 'border border-black bg-white text-black hover:bg-black hover:text-white'
+                      : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                  }`}
+                  title="Włącza lub wyłącza fizyczną diodę LED na krążku Triki (kod 0x01 / 0x00)"
+                >
+                  <span className={`w-2 h-2 rounded-full ${isLedOn ? 'bg-white animate-pulse' : 'bg-slate-400'}`}></span>
+                  <span>{isLedOn ? 'WYŁĄCZ LED (ON)' : 'WŁĄCZ LED (OFF)'}</span>
+                </button>
+
+                {/* 3x Blink Diagnostic Test */}
+                <button
+                  onClick={handleTestBlink}
+                  className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-medium border text-[11px] transition-colors ${
+                    isEink
+                      ? 'border-black hover:bg-black hover:text-white'
+                      : 'border-amber-300 bg-white hover:bg-amber-100 text-amber-800 shadow-xs'
+                  }`}
+                  title="Wykonuje sekwencję 3 mignięć diodą LED, aby zweryfikować reakcję sprzętu"
+                >
+                  <span>Miganie (Blink 3x)</span>
+                </button>
+              </div>
+
+              {/* Target Characteristic Selector for LED */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-slate-500">Kanał:</span>
+                <select
+                  value={ledMethod}
+                  onChange={(e) => handleLedMethodChange(e.target.value as LedControlMethod)}
+                  className={`px-1.5 py-1 rounded border text-[10px] font-mono cursor-pointer ${
+                    isEink ? 'bg-white text-black border-black' : 'bg-white text-slate-700 border-slate-300'
+                  }`}
+                  title="Wybierz charakterystykę docelową BLE dla komendy diody LED"
+                >
+                  <option value="auto">Auto (0x6E400004 + fallback RX)</option>
+                  <option value="char-6e400004">Char 0x6E400004 (Zalecane)</option>
+                  <option value="nus-rx-01">NUS RX (Bajt 0x01 / 0x00)</option>
+                  <option value="both">Wyślij do obu jednocześnie</option>
+                  <option value="nus-rx-vendor">NUS RX (Vendor 0x2002)</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Row 3: Dedicated Button Configuration & Live Diagnostic Bar */}
+            <div
+              className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 flex-wrap text-[11px] ${
+                isEink ? 'bg-zinc-100 border-black' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-slate-700">Tryb przycisku:</span>
+                <select
+                  value={buttonMode}
+                  onChange={(e) => handleButtonModeChange(e.target.value as ButtonMode)}
+                  className={`px-2 py-1 rounded border text-[11px] font-mono cursor-pointer transition-colors ${
+                    isEink
+                      ? 'bg-white text-black border-black font-bold'
+                      : 'bg-white text-slate-800 border-slate-300 focus:outline-sky-500'
+                  }`}
+                  title="Wybierz jak aplikacja interpretuje sygnał przycisku z krążka"
+                >
+                  <option value="exact-01">Domyślny Triki (Bajt[1] == 0x01)</option>
+                  <option value="inverted">Odwrócony Triki (Bajt[1] == 0x00)</option>
+                  <option value="bit0">Maska bitowa (Bajt[1] & 0x01)</option>
+                  <option value="nonzero">Wartość &gt; 0 (Bajt[1] &gt; 0)</option>
+                  <option value="manual">Tylko wirtualny (Kliknięcie myszką)</option>
+                  <option value="tap">Gest Tap (Stuknięcie w obudowę)</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleSimulateClick}
+                  className={`flex items-center gap-1 px-2.5 py-1 rounded font-medium border text-[11px] transition-colors ${
+                    isEink
+                      ? 'bg-black text-white hover:bg-zinc-800'
+                      : 'bg-white hover:bg-slate-100 text-sky-700 border-sky-300 shadow-xs'
+                  }`}
+                  title="Symuluje wciśnięcie przycisku i włącza impuls na diodzie LED krążka"
+                >
+                  <MousePointerClick className="w-3.5 h-3.5" />
+                  <span>Testuj Klik</span>
+                </button>
+
+                <button
+                  onClick={handleResetClicks}
+                  className={`flex items-center gap-1 px-2 py-1 rounded border text-[11px] font-mono transition-colors ${
+                    isEink
+                      ? 'border-black text-black hover:bg-zinc-200'
+                      : 'border-slate-300 text-slate-600 hover:bg-slate-100'
+                  }`}
+                  title="Zeruj licznik kliknięć"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Zeruj ({latestSample?.buttonPressCount ?? 0})</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Row 4: Axis Inversion & Pitch/Roll Swap Toggles */}
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-100 text-[11px] flex-wrap">
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Swap Pitch ⇄ Roll Checkbox (Permanent default) */}
+                <label className="flex items-center gap-1.5 font-bold cursor-pointer select-none bg-emerald-50 text-emerald-800 border border-emerald-300 px-2 py-0.5 rounded shadow-2xs" title="Zamiana Pitch ⇄ Roll na stałe włączona">
+                  <input
+                    type="checkbox"
+                    checked={swapPitchRoll}
+                    onChange={handleToggleSwapPitchRoll}
+                    className="accent-emerald-600 cursor-pointer"
+                  />
+                  <span>Pitch ⇄ Roll (Na stałe)</span>
+                </label>
+
+                <span className="text-slate-300">|</span>
+
+                <span className="font-semibold text-slate-600">Odwracanie:</span>
+                <label className="flex items-center gap-1 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={invertPitch}
+                    onChange={handleTogglePitch}
+                    className="accent-sky-600 cursor-pointer"
+                  />
+                  <span>Pitch</span>
+                </label>
+                <label className={`flex items-center gap-1 cursor-pointer select-none px-1.5 py-0.2 rounded ${invertRoll ? 'bg-sky-50 text-sky-800 font-semibold' : ''}`} title="Odwrócenie obecnej osi Roll">
+                  <input
+                    type="checkbox"
+                    checked={invertRoll}
+                    onChange={handleToggleRoll}
+                    className="accent-sky-600 cursor-pointer"
+                  />
+                  <span>Roll (Odwrócony)</span>
+                </label>
+                <label className={`flex items-center gap-1 cursor-pointer select-none px-1.5 py-0.2 rounded ${invertYaw ? 'bg-amber-50 text-amber-800 font-semibold' : ''}`} title="Odwrócenie obecnej osi Yaw">
+                  <input
+                    type="checkbox"
+                    checked={invertYaw}
+                    onChange={handleToggleYaw}
+                    className="accent-amber-600 cursor-pointer"
+                  />
+                  <span>Yaw (Odwrócony)</span>
+                </label>
+              </div>
+
+              {/* Color swatches */}
+              {!isEink && (
                 <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-slate-500">Kolor LED:</span>
                   {[
                     { hex: '#00e5ff', r: 0, g: 229, b: 255, name: 'Cyan' },
                     { hex: '#10b981', r: 16, g: 185, b: 129, name: 'Green' },
@@ -533,7 +926,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                     <button
                       key={c.hex}
                       onClick={() => handleColorSelect(c.hex, c.r, c.g, c.b)}
-                      className={`w-5 h-5 rounded-full transition-transform ${
+                      className={`w-3.5 h-3.5 rounded-full transition-transform ${
                         activeLedColor === c.hex ? 'scale-125 ring-2 ring-slate-400 ring-offset-1' : 'hover:scale-110'
                       }`}
                       style={{ backgroundColor: c.hex }}
@@ -541,8 +934,8 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                     />
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
