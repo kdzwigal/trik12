@@ -186,35 +186,35 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     const puckGroup = new THREE.Group();
     scene.add(puckGroup);
 
-    // Material definitions based on theme
+    // Material definitions based on theme (E-Ink uses crisp light paper tones with subtle contour contrast)
     const hullMat = new THREE.MeshStandardMaterial({
-      color: isEink ? 0x222222 : 0x1e293b,
-      metalness: 0.2,
-      roughness: 0.35,
+      color: isEink ? 0xf5f5f2 : 0x1e293b,
+      metalness: isEink ? 0.05 : 0.2,
+      roughness: isEink ? 0.6 : 0.35,
     });
 
     const gripMat = new THREE.MeshStandardMaterial({
-      color: isEink ? 0x111111 : 0x0f172a,
+      color: isEink ? 0xd8d8d4 : 0x0f172a,
       metalness: 0.05,
       roughness: 0.85,
     });
 
     const buttonMat = new THREE.MeshStandardMaterial({
-      color: isEink ? 0x444444 : 0x334155,
-      metalness: 0.4,
-      roughness: 0.25,
+      color: isEink ? 0xe6e6e0 : 0x334155,
+      metalness: isEink ? 0.1 : 0.4,
+      roughness: 0.4,
     });
 
     const ledMat = new THREE.MeshStandardMaterial({
-      color: isEink ? 0x000000 : 0x00e5ff,
+      color: isEink ? 0xcccccc : 0x00e5ff,
       emissive: isEink ? 0x222222 : 0x00e5ff,
-      emissiveIntensity: isEink ? 0.3 : 1.4,
+      emissiveIntensity: isEink ? 0.15 : 1.4,
       roughness: 0.1,
       metalness: 0.1,
     });
 
     const baseMat = new THREE.MeshStandardMaterial({
-      color: isEink ? 0x1a1a1a : 0x0f172a,
+      color: isEink ? 0xdeded8 : 0x0f172a,
       roughness: 0.7,
       metalness: 0.1,
     });
@@ -389,7 +389,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
         if (btnMat) {
           if (isPressed) {
             if (themeRef.current === 'eink') {
-              btnMat.color.setHex(0x000000);
+              btnMat.color.setHex(0xb0b0a8);
             } else {
               btnMat.color.setHex(0x0284c7);
               btnMat.emissive.setHex(0x0284c7);
@@ -397,7 +397,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
             }
           } else {
             if (themeRef.current === 'eink') {
-              btnMat.color.setHex(0x444444);
+              btnMat.color.setHex(0xe6e6e0);
             } else {
               btnMat.color.setHex(0x334155);
               btnMat.emissive.setHex(0x000000);
@@ -415,7 +415,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
             ledRingMat.emissive.set(activeLedColorRef.current);
             ledRingMat.emissiveIntensity = 2.8;
           } else {
-            ledRingMat.color.set(themeRef.current === 'eink' ? 0x000000 : 0x0284c7);
+            ledRingMat.color.set(themeRef.current === 'eink' ? 0xcccccc : 0x0284c7);
             ledRingMat.emissive.setHex(0x000000);
             ledRingMat.emissiveIntensity = 0.0;
           }
@@ -457,13 +457,13 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
     if (elements) {
       const { hull, grip, button, ledRing, bottomBase } = elements.parts;
       if (isEink) {
-        (hull.material as THREE.MeshStandardMaterial).color.setHex(0x222222);
-        (grip.material as THREE.MeshStandardMaterial).color.setHex(0x111111);
-        (button.material as THREE.MeshStandardMaterial).color.setHex(0x444444);
-        (bottomBase.material as THREE.MeshStandardMaterial).color.setHex(0x1a1a1a);
-        (ledRing.material as THREE.MeshStandardMaterial).color.setHex(0x000000);
-        (ledRing.material as THREE.MeshStandardMaterial).emissive.setHex(0x333333);
-        (ledRing.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.2;
+        (hull.material as THREE.MeshStandardMaterial).color.setHex(0xf5f5f2);
+        (grip.material as THREE.MeshStandardMaterial).color.setHex(0xd8d8d4);
+        (button.material as THREE.MeshStandardMaterial).color.setHex(0xe6e6e0);
+        (bottomBase.material as THREE.MeshStandardMaterial).color.setHex(0xdeded8);
+        (ledRing.material as THREE.MeshStandardMaterial).color.setHex(0xcccccc);
+        (ledRing.material as THREE.MeshStandardMaterial).emissive.setHex(0x222222);
+        (ledRing.material as THREE.MeshStandardMaterial).emissiveIntensity = 0.15;
       } else {
         (hull.material as THREE.MeshStandardMaterial).color.setHex(0x1e293b);
         (grip.material as THREE.MeshStandardMaterial).color.setHex(0x0f172a);
@@ -594,7 +594,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
       <div
         className={`absolute top-4 left-4 text-xs font-mono px-3.5 py-2.5 rounded-lg transition-colors ${
           isEink
-            ? 'bg-black text-white border border-black shadow-none'
+            ? 'bg-white/95 text-black border border-black shadow-none backdrop-blur-xs'
             : 'bg-white/95 text-slate-800 border border-slate-200 shadow-sm backdrop-blur-sm'
         }`}
       >
@@ -602,19 +602,27 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
           <span>Żabka Triki (CAP001)</span>
           <div className="flex items-center gap-1.5 pointer-events-auto">
             {swapPitchRoll && (
-              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-normal" title="Zamiana Pitch ⇄ Roll na stałe włączona">
+              <span className={`text-[10px] px-1.5 py-0.2 rounded font-normal ${
+                isEink ? 'border border-black bg-zinc-100 text-black' : 'bg-emerald-100 text-emerald-800'
+              }`} title="Zamiana Pitch ⇄ Roll na stałe włączona">
                 P⇄R na stałe
               </span>
             )}
             {(invertPitch || invertYaw) && (
-              <span className="text-[10px] bg-sky-100 text-sky-800 px-1.5 py-0.2 rounded font-normal" title="Odwrócenie osi Pitch i Yaw aktywne">
+              <span className={`text-[10px] px-1.5 py-0.2 rounded font-normal ${
+                isEink ? 'border border-black bg-zinc-100 text-black' : 'bg-sky-100 text-sky-800'
+              }`} title="Odwrócenie osi Pitch i Yaw aktywne">
                 P/Y odwrócone
               </span>
             )}
             {onOpenFilterSettings && (
               <button
                 onClick={onOpenFilterSettings}
-                className="text-[10px] bg-sky-100 hover:bg-sky-200 text-sky-800 font-semibold px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer"
+                className={`text-[10px] font-semibold px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer ${
+                  isEink
+                    ? 'border border-black bg-white text-black hover:bg-zinc-100'
+                    : 'bg-sky-100 hover:bg-sky-200 text-sky-800'
+                }`}
                 title="Otwórz panel edycji filtracji sensorów"
               >
                 <Sliders className="w-3 h-3" />
@@ -624,19 +632,19 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
           </div>
         </div>
         <div className="flex gap-3 tabular-nums">
-          <span>R: <strong className="text-sky-600">{latestSample ? latestSample.euler.roll.toFixed(1) : '0.0'}°</strong></span>
-          <span>P: <strong className="text-indigo-600">{latestSample ? latestSample.euler.pitch.toFixed(1) : '0.0'}°</strong></span>
-          <span>Y: <strong className="text-amber-600">{latestSample ? latestSample.euler.yaw.toFixed(1) : '0.0'}°</strong></span>
+          <span>R: <strong className={isEink ? 'text-black' : 'text-sky-600'}>{latestSample ? latestSample.euler.roll.toFixed(1) : '0.0'}°</strong></span>
+          <span>P: <strong className={isEink ? 'text-black' : 'text-indigo-600'}>{latestSample ? latestSample.euler.pitch.toFixed(1) : '0.0'}°</strong></span>
+          <span>Y: <strong className={isEink ? 'text-black' : 'text-amber-600'}>{latestSample ? latestSample.euler.yaw.toFixed(1) : '0.0'}°</strong></span>
         </div>
         <div className="flex items-center gap-2 mt-1.5 text-[11px] flex-wrap pointer-events-none">
           <span
             className={`font-semibold px-2 py-0.5 rounded transition-colors ${
               latestSample?.button
                 ? isEink
-                  ? 'bg-black text-white'
+                  ? 'border border-black bg-zinc-200 text-black font-bold'
                   : 'bg-emerald-600 text-white shadow-xs'
                 : isEink
-                ? 'bg-zinc-200 text-zinc-700'
+                ? 'border border-zinc-300 bg-white text-zinc-600'
                 : 'bg-slate-100 text-slate-500 border border-slate-200'
             }`}
           >

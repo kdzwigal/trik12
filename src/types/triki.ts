@@ -72,7 +72,7 @@ export interface FilterConfig {
   compAlpha: number; // 0.50 - 0.999 (default: 0.95)
   madgwickBeta: number; // 0.01 - 0.50 (default: 0.08)
   rawAccelLpfFactor: number; // 0.0 - 0.80 (default: 0.15)
-  rawGyroDeadband: number; // 0.0 - 0.10 rad/s (default: 0.005)
+  rawGyroDeadband: number; // 0.0 - 0.10 rad/s (default: 0.025)
   swapPitchRoll: boolean; // default: true (permanent pitch ⇄ roll swap)
   invertPitch: boolean; // default: true (inverted as requested: "owroc pitch")
   invertRoll: boolean; // default: false (canceled as requested: "anuluj odwrocenie roll")

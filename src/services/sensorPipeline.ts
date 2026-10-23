@@ -41,7 +41,7 @@ export class SensorPipeline {
     compAlpha: 0.95,
     madgwickBeta: 0.08,
     rawAccelLpfFactor: 0.15,
-    rawGyroDeadband: 0.005,
+    rawGyroDeadband: 0.025, // 0.025 rad/s (~1.4 deg/s) eliminates resting gyro noise
     swapPitchRoll: true, // Permanent Pitch ⇄ Roll swap
     invertPitch: true,   // Inverted as requested: "owroc pitch"
     invertRoll: false,   // Canceled as requested: "anuluj odwrocenie roll"
@@ -49,6 +49,13 @@ export class SensorPipeline {
     yawScaleMultiplier: 1.0, // Fine-tuning multiplier for full 360° rotation
     accelScaleMultiplier: 1.0, // Multiplier for 1.00g resting Earth gravity
   };
+
+  // Standstill / resting drift elimination state
+  private stillFramesCount: number = 0;
+  private prevAx: number = 0;
+  private prevAy: number = 0;
+  private prevAz: number = 1.0;
+  private startupSamplesCount: number = 0;
 
   // Low-Pass Filter state for raw accelerometer
   private filteredAx: number = 0;
@@ -229,6 +236,21 @@ export class SensorPipeline {
       }
     }
 
+    // Auto-bias baseline calibration on first 50 packets (~0.5s) if resting still
+    if (this.startupSamplesCount < 50) {
+      this.startupSamplesCount++;
+      const magRawG = Math.sqrt(raw.gyro.x * raw.gyro.x + raw.gyro.y * raw.gyro.y + raw.gyro.z * raw.gyro.z);
+      if (magRawG < 0.4) {
+        this.calibration.gyroBiasX = (this.calibration.gyroBiasX * (this.startupSamplesCount - 1) + raw.gyro.x) / this.startupSamplesCount;
+        this.calibration.gyroBiasY = (this.calibration.gyroBiasY * (this.startupSamplesCount - 1) + raw.gyro.y) / this.startupSamplesCount;
+        this.calibration.gyroBiasZ = (this.calibration.gyroBiasZ * (this.startupSamplesCount - 1) + raw.gyro.z) / this.startupSamplesCount;
+        if (this.startupSamplesCount === 50) {
+          this.calibration.isCalibrated = true;
+          this.notifyCalibrationChanged();
+        }
+      }
+    }
+
     // 2. Apply calibration offsets and acceleration scale multiplier (normalizes 0.89g to 1.00g)
     const accelScale = this.filterConfig.accelScaleMultiplier ?? 1.0;
     let ax = (raw.accel.x - this.calibration.accelOffsetX) * accelScale;
@@ -264,8 +286,36 @@ export class SensorPipeline {
       }
     }
 
-    // 3. Compute vector magnitudes
+    // 3. Compute vector magnitudes and detect standstill (Zero-Velocity Update)
     const accelMag = Math.sqrt(ax * ax + ay * ay + az * az);
+    const rawGyroMag = Math.sqrt(raw.gyro.x * raw.gyro.x + raw.gyro.y * raw.gyro.y + raw.gyro.z * raw.gyro.z);
+
+    const dAx = Math.abs(ax - this.prevAx);
+    const dAy = Math.abs(ay - this.prevAy);
+    const dAz = Math.abs(az - this.prevAz);
+    this.prevAx = ax;
+    this.prevAy = ay;
+    this.prevAz = az;
+
+    // Detect if Triki is stationary / resting in standstill on desk:
+    const isStationary = rawGyroMag < 0.06 && dAx < 0.04 && dAy < 0.04 && dAz < 0.04 && Math.abs(accelMag - 1.0) < 0.25;
+
+    if (isStationary) {
+      this.stillFramesCount++;
+      if (this.stillFramesCount > 3) {
+        // Slowly adapt Z gyro bias to track and absorb any resting thermal DC offset
+        this.calibration.gyroBiasZ += (raw.gyro.z - this.calibration.gyroBiasZ) * 0.03;
+        this.calibration.gyroBiasX += (raw.gyro.x - this.calibration.gyroBiasX) * 0.03;
+        this.calibration.gyroBiasY += (raw.gyro.y - this.calibration.gyroBiasY) * 0.03;
+        // In standstill, freeze gyro rates to strictly 0: ELIMINATES IDLE YAW DRIFT 100%!
+        gx = 0;
+        gy = 0;
+        gz = 0;
+      }
+    } else {
+      this.stillFramesCount = 0;
+    }
+
     const gyroMag = Math.sqrt(gx * gx + gy * gy + gz * gz);
 
     // 4. Update Orientation Fusion filter
