@@ -38,7 +38,12 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
 
   const [showAxes, setShowAxes] = useState(true);
   const [explodedView, setExplodedView] = useState(0);
-  const [dockExpanded, setDockExpanded] = useState(true);
+  const [dockExpanded, setDockExpanded] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return window.innerWidth >= 768;
+    }
+    return false;
+  });
   const [activeLedColor, setActiveLedColor] = useState('#00e5ff');
   const activeLedColorRef = useRef(activeLedColor);
   activeLedColorRef.current = activeLedColor;
@@ -586,59 +591,59 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
   const isEink = theme === 'eink';
 
   return (
-    <div className="relative w-full h-full min-h-[460px] rounded-xl overflow-hidden select-none">
-      {/* Three.js canvas mount container */}
-      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
+    <div className="relative w-full h-full min-h-[320px] sm:min-h-[440px] rounded-xl overflow-hidden select-none">
+      {/* Three.js canvas mount container with touch-none for smooth mobile gesture tracking */}
+      <div ref={mountRef} className="w-full h-full cursor-grab active:cursor-grabbing touch-none" />
 
       {/* Top Spec Badge / Orientation HUD */}
       <div
-        className={`absolute top-4 left-4 text-xs font-mono px-3.5 py-2.5 rounded-lg transition-colors ${
+        className={`absolute top-2 left-2 sm:top-4 sm:left-4 max-w-[calc(100%-1rem)] sm:max-w-none text-[10px] sm:text-xs font-mono px-2.5 py-1.5 sm:px-3.5 sm:py-2.5 rounded-lg transition-colors ${
           isEink
             ? 'bg-white/95 text-black border border-black shadow-none backdrop-blur-xs'
             : 'bg-white/95 text-slate-800 border border-slate-200 shadow-sm backdrop-blur-sm'
         }`}
       >
-        <div className="flex items-center justify-between gap-4 font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-1">
-          <span>Żabka Triki (CAP001)</span>
-          <div className="flex items-center gap-1.5 pointer-events-auto">
+        <div className="flex items-center justify-between gap-2 sm:gap-4 font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-1">
+          <span className="truncate">Żabka Triki (CAP001)</span>
+          <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto shrink-0">
             {swapPitchRoll && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded font-normal ${
+              <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded font-normal ${
                 isEink ? 'border border-black bg-zinc-100 text-black' : 'bg-emerald-100 text-emerald-800'
               }`} title="Zamiana Pitch ⇄ Roll na stałe włączona">
-                P⇄R na stałe
+                P⇄R
               </span>
             )}
             {(invertPitch || invertYaw) && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded font-normal ${
+              <span className={`text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded font-normal ${
                 isEink ? 'border border-black bg-zinc-100 text-black' : 'bg-sky-100 text-sky-800'
               }`} title="Odwrócenie osi Pitch i Yaw aktywne">
-                P/Y odwrócone
+                P/Y odwr.
               </span>
             )}
             {onOpenFilterSettings && (
               <button
                 onClick={onOpenFilterSettings}
-                className={`text-[10px] font-semibold px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer ${
+                className={`text-[9px] sm:text-[10px] font-semibold px-1.5 sm:px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer ${
                   isEink
                     ? 'border border-black bg-white text-black hover:bg-zinc-100'
                     : 'bg-sky-100 hover:bg-sky-200 text-sky-800'
                 }`}
                 title="Otwórz panel edycji filtracji sensorów"
               >
-                <Sliders className="w-3 h-3" />
-                <span>Edycja filtrów</span>
+                <Sliders className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                <span className="hidden xs:inline">Filtry</span>
               </button>
             )}
           </div>
         </div>
-        <div className="flex gap-3 tabular-nums">
+        <div className="flex gap-2 sm:gap-3 tabular-nums text-[10px] sm:text-xs">
           <span>R: <strong className={isEink ? 'text-black' : 'text-sky-600'}>{latestSample ? latestSample.euler.roll.toFixed(1) : '0.0'}°</strong></span>
           <span>P: <strong className={isEink ? 'text-black' : 'text-indigo-600'}>{latestSample ? latestSample.euler.pitch.toFixed(1) : '0.0'}°</strong></span>
           <span>Y: <strong className={isEink ? 'text-black' : 'text-amber-600'}>{latestSample ? latestSample.euler.yaw.toFixed(1) : '0.0'}°</strong></span>
         </div>
-        <div className="flex items-center gap-2 mt-1.5 text-[11px] flex-wrap pointer-events-none">
+        <div className="flex items-center gap-1.5 sm:gap-2 mt-1 text-[10px] sm:text-[11px] flex-wrap pointer-events-none">
           <span
-            className={`font-semibold px-2 py-0.5 rounded transition-colors ${
+            className={`font-semibold px-1.5 py-0.2 rounded transition-colors ${
               latestSample?.button
                 ? isEink
                   ? 'border border-black bg-zinc-200 text-black font-bold'
@@ -651,23 +656,21 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
             {latestSample?.button ? '● WCIŚNIĘTY' : '○ PUSZCZONY'}
           </span>
           <span className="opacity-50">·</span>
-          <span className={`px-1.5 py-0.2 rounded font-semibold text-[10px] ${isLedOn ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-400'}`}>
-            LED: {isLedOn ? '● ŚWIECI' : '○ WYŁĄCZONA'}
+          <span className={`px-1.5 py-0.2 rounded font-semibold text-[9px] sm:text-[10px] ${isLedOn ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-400'}`}>
+            LED: {isLedOn ? '● ON' : '○ OFF'}
           </span>
-          <span className="opacity-50">·</span>
-          <span>Kliknięcia: {latestSample?.buttonPressCount ?? 0}</span>
-          <span className="opacity-50">·</span>
-          <span>Gest: {latestSample?.gesture || 'idle'}</span>
+          <span className="opacity-50 hidden xs:inline">·</span>
+          <span className="hidden xs:inline">Kliknięcia: {latestSample?.buttonPressCount ?? 0}</span>
         </div>
       </div>
 
       {/* Ergonomic Collapsible Bottom Control Dock */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 w-[94%] max-w-[650px] z-10 transition-all">
+      <div className="absolute bottom-2 sm:bottom-3 left-1/2 -translate-x-1/2 w-[96%] sm:w-[94%] max-w-[650px] z-10 transition-all">
         {/* Collapse toggle tab */}
         <div className="flex justify-center mb-1">
           <button
             onClick={() => setDockExpanded(!dockExpanded)}
-            className={`text-[11px] font-mono px-3 py-1 rounded-t-md border-t border-x transition-colors ${
+            className={`text-[11px] font-mono px-3 py-1.5 rounded-t-md border-t border-x transition-colors min-h-[36px] flex items-center ${
               isEink
                 ? 'bg-white text-black border-black font-bold'
                 : 'bg-white text-slate-700 border-slate-200 hover:text-slate-900 shadow-xs'
@@ -679,7 +682,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
 
         {dockExpanded && (
           <div
-            className={`p-3.5 rounded-xl border flex flex-col gap-3 transition-colors ${
+            className={`p-2.5 sm:p-3.5 max-h-[50vh] overflow-y-auto rounded-xl border flex flex-col gap-2.5 sm:gap-3 transition-colors ${
               isEink
                 ? 'bg-white border-2 border-black text-black shadow-none'
                 : 'bg-white text-slate-800 border-slate-200 shadow-md'
@@ -692,7 +695,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                   onClick={onResetOrientation}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-colors ${
                     isEink
-                      ? 'bg-black text-white hover:bg-zinc-800'
+                      ? 'border-2 border-black bg-white text-black hover:bg-zinc-100 font-bold'
                       : 'bg-sky-600 text-white hover:bg-sky-700 shadow-xs'
                   }`}
                   title="Ustawia obecną pozycję jako bazowe (0, 0, 0)"
@@ -705,8 +708,8 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                   onClick={() => setShowAxes(!showAxes)}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-medium border text-[11px] transition-colors ${
                     showAxes
-                      ? isEink ? 'bg-black text-white' : 'bg-slate-100 text-slate-900 border-slate-300'
-                      : 'border-slate-200 text-slate-600'
+                      ? isEink ? 'border border-black bg-zinc-200 text-black font-bold' : 'bg-slate-100 text-slate-900 border-slate-300'
+                      : isEink ? 'border border-zinc-300 text-zinc-700' : 'border-slate-200 text-slate-600'
                   }`}
                 >
                   <Eye className="w-3.5 h-3.5" />
@@ -718,12 +721,13 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                     onClick={onOpenFilterSettings}
                     className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-semibold border text-[11px] transition-colors ${
                       isEink
-                        ? 'border-black hover:bg-black hover:text-white'
+                        ? 'border border-black bg-white text-black hover:bg-zinc-100'
                         : 'border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
                     }`}
                   >
                     <Sliders className="w-3.5 h-3.5" />
-                    <span>Edycja filtrów...</span>
+                    <span className="hidden sm:inline">Edycja filtrów...</span>
+                    <span className="sm:hidden">Filtry</span>
                   </button>
                 )}
               </div>
@@ -734,8 +738,8 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                   onClick={() => handleFilterChange('complementary')}
                   className={`px-2 py-1 rounded font-medium transition-colors ${
                     currentFilter === 'complementary'
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? isEink ? 'border border-black bg-zinc-200 text-black font-bold' : 'bg-slate-900 text-white'
+                      : isEink ? 'text-zinc-700 hover:text-black' : 'text-slate-600 hover:text-slate-900'
                   }`}
                   title="Płynny, pełny zakres 360° (polecany dla Triki)"
                 >
@@ -745,8 +749,8 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                   onClick={() => handleFilterChange('madgwick')}
                   className={`px-2 py-1 rounded font-medium transition-colors ${
                     currentFilter === 'madgwick'
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-600 hover:text-slate-900'
+                      ? isEink ? 'border border-black bg-zinc-200 text-black font-bold' : 'bg-slate-900 text-white'
+                      : isEink ? 'text-zinc-700 hover:text-black' : 'text-slate-600 hover:text-slate-900'
                   }`}
                   title="Algorytm Madgwick AHRS"
                 >
@@ -755,10 +759,10 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
               </div>
             </div>
 
-            {/* Row 2: NEW LED CONTROL SECTION (Fixes user issue: "nie dziala zapalanie diody led") */}
+            {/* Row 2: LED CONTROL SECTION */}
             <div
               className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 flex-wrap text-[11px] ${
-                isEink ? 'bg-zinc-100 border-black' : 'bg-amber-50/70 border-amber-200'
+                isEink ? 'bg-zinc-50 border-black' : 'bg-amber-50/70 border-amber-200'
               }`}
             >
               <div className="flex items-center gap-2.5 flex-wrap">
@@ -774,7 +778,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                     isLedOn
                       ? 'bg-amber-500 text-white hover:bg-amber-600 ring-2 ring-amber-300'
                       : isEink
-                      ? 'border border-black bg-white text-black hover:bg-black hover:text-white'
+                      ? 'border-2 border-black bg-white text-black hover:bg-zinc-100 font-bold'
                       : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
                   }`}
                   title="Włącza lub wyłącza fizyczną diodę LED na krążku Triki (kod 0x01 / 0x00)"
@@ -788,7 +792,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                   onClick={handleTestBlink}
                   className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg font-medium border text-[11px] transition-colors ${
                     isEink
-                      ? 'border-black hover:bg-black hover:text-white'
+                      ? 'border border-black bg-white text-black hover:bg-zinc-100'
                       : 'border-amber-300 bg-white hover:bg-amber-100 text-amber-800 shadow-xs'
                   }`}
                   title="Wykonuje sekwencję 3 mignięć diodą LED, aby zweryfikować reakcję sprzętu"
@@ -820,7 +824,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
             {/* Row 3: Dedicated Button Configuration & Live Diagnostic Bar */}
             <div
               className={`p-2.5 rounded-lg border flex items-center justify-between gap-3 flex-wrap text-[11px] ${
-                isEink ? 'bg-zinc-100 border-black' : 'bg-slate-50 border-slate-200'
+                isEink ? 'bg-zinc-50 border-black' : 'bg-slate-50 border-slate-200'
               }`}
             >
               <div className="flex items-center gap-2 flex-wrap">
@@ -849,7 +853,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                   onClick={handleSimulateClick}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded font-medium border text-[11px] transition-colors ${
                     isEink
-                      ? 'bg-black text-white hover:bg-zinc-800'
+                      ? 'border-2 border-black bg-white text-black hover:bg-zinc-100 font-bold'
                       : 'bg-white hover:bg-slate-100 text-sky-700 border-sky-300 shadow-xs'
                   }`}
                   title="Symuluje wciśnięcie przycisku i włącza impuls na diodzie LED krążka"
@@ -897,7 +901,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                     onChange={handleTogglePitch}
                     className="accent-indigo-600 cursor-pointer"
                   />
-                  <span>Pitch (Odwrócony)</span>
+                  <span>Pitch (Odwr.)</span>
                 </label>
                 <label className={`flex items-center gap-1 cursor-pointer select-none px-1.5 py-0.2 rounded ${invertRoll ? 'bg-sky-50 text-sky-800 font-semibold' : ''}`} title="Odwrócenie osi Roll (Przechył)">
                   <input
@@ -915,7 +919,7 @@ export const Triki3DViewer: React.FC<Triki3DViewerProps> = ({
                     onChange={handleToggleYaw}
                     className="accent-amber-600 cursor-pointer"
                   />
-                  <span>Yaw (Odwrócony)</span>
+                  <span>Yaw (Odwr.)</span>
                 </label>
               </div>
 

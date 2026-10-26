@@ -217,7 +217,7 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
 
   return (
     <div
-      className={`rounded-xl border p-4 flex flex-col gap-2 transition-colors ${
+      className={`rounded-xl border p-3 sm:p-5 flex flex-col gap-3 sm:gap-4 transition-colors ${
         isEink
           ? 'bg-white border-2 border-black text-black'
           : 'bg-white border-slate-200 text-slate-800 shadow-xs'
@@ -230,11 +230,11 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
           <h3 className="text-sm font-semibold tracking-tight">
             Oscyloskop fal IMU (Skia 2D Engine)
           </h3>
-          <span className="text-xs font-mono opacity-60">· 100 Hz Frame Buffer</span>
+          <span className="text-xs font-mono opacity-60 hidden sm:inline">· 100 Hz Frame Buffer</span>
         </div>
 
         {/* Channel & Controls */}
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-xs flex-wrap">
           {/* Channel selector */}
           <div
             className={`flex items-center p-0.5 rounded-lg border ${
@@ -243,11 +243,13 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
           >
             <button
               onClick={() => setChannelView('both')}
-              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+              className={`px-2 sm:px-2.5 py-1 rounded-md font-medium transition-colors ${
                 channelView === 'both'
                   ? isEink
-                    ? 'bg-black text-white'
+                    ? 'border border-black bg-zinc-200 text-black font-bold'
                     : 'bg-white text-slate-900 shadow-xs'
+                  : isEink
+                  ? 'text-zinc-600 hover:text-black'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -255,11 +257,13 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
             </button>
             <button
               onClick={() => setChannelView('gyro')}
-              className={`px-2.5 py-1 rounded-md font-medium transition-colors ${
+              className={`px-2 sm:px-2.5 py-1 rounded-md font-medium transition-colors ${
                 channelView === 'gyro'
                   ? isEink
-                    ? 'bg-black text-white'
+                    ? 'border border-black bg-zinc-200 text-black font-bold'
                     : 'bg-white text-slate-900 shadow-xs'
+                  : isEink
+                  ? 'text-zinc-600 hover:text-black'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
@@ -286,18 +290,18 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
           {/* Auto-scale toggle */}
           <button
             onClick={() => setAutoScale(!autoScale)}
-            className={`px-2.5 py-1 rounded-lg border font-mono text-xs transition-colors ${
+            className={`px-2 sm:px-2.5 py-1 rounded-lg border font-mono text-xs transition-colors ${
               autoScale
                 ? isEink
-                  ? 'bg-black text-white border-black'
+                  ? 'border-2 border-black bg-zinc-100 text-black font-bold'
                   : 'bg-sky-50 text-sky-700 border-sky-200'
                 : isEink
-                ? 'border-black text-black'
+                ? 'border-zinc-300 text-zinc-600 hover:border-black'
                 : 'border-slate-200 text-slate-600 hover:bg-slate-50'
             }`}
             title="Włącz/Wyłącz automatyczne skalowanie osi Y"
           >
-            AutoScale: {autoScale ? 'ON' : 'OFF'}
+            Scale: {autoScale ? 'ON' : 'OFF'}
           </button>
         </div>
       </div>

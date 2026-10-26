@@ -107,12 +107,14 @@ export const SignalInspector: React.FC<SignalInspectorProps> = ({
         <div className={`p-3 rounded-lg border flex flex-col justify-between transition-colors ${
           sample?.button
             ? isEink
-              ? 'bg-black text-white border-black'
+              ? 'bg-zinc-200 text-black border-2 border-black font-bold'
               : 'bg-emerald-50 border-emerald-300 text-emerald-900'
+            : isEink
+            ? 'bg-white border-zinc-300 text-zinc-600'
             : 'bg-slate-50 border-slate-200'
         }`}>
           <span className="text-[11px] font-semibold text-slate-500">PRZYCISK</span>
-          <span className={`text-base font-bold ${sample?.button ? (isEink ? 'text-white' : 'text-emerald-700') : 'text-slate-500'}`}>
+          <span className={`text-base font-bold ${sample?.button ? (isEink ? 'text-black' : 'text-emerald-700') : 'text-slate-500'}`}>
             {sample?.button ? '● WCIŚNIĘTY' : '○ Puszczony'}
           </span>
           <span className="text-[10px] opacity-75">
@@ -136,7 +138,7 @@ export const SignalInspector: React.FC<SignalInspectorProps> = ({
         <div
           className={`p-3 rounded-lg font-mono text-xs overflow-x-auto select-all ${
             isEink
-              ? 'bg-black text-white border border-black'
+              ? 'bg-zinc-100 text-black border border-black'
               : 'bg-slate-900 text-cyan-400 border border-slate-800'
           }`}
         >

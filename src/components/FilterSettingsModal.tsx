@@ -183,7 +183,7 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
                 onClick={() => handleApplyPreset('balanced')}
                 className={`p-2.5 rounded-lg border text-left transition-all ${
                   config.mode === 'complementary' && config.compAlpha === 0.95
-                    ? isEink ? 'bg-black text-white border-black font-bold' : 'bg-sky-50 border-sky-400 text-sky-900 shadow-xs ring-1 ring-sky-300'
+                    ? isEink ? 'border-2 border-black bg-zinc-200 text-black font-bold' : 'bg-sky-50 border-sky-400 text-sky-900 shadow-xs ring-1 ring-sky-300'
                     : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
@@ -200,7 +200,7 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
                 onClick={() => handleApplyPreset('dynamic')}
                 className={`p-2.5 rounded-lg border text-left transition-all ${
                   config.mode === 'complementary' && config.compAlpha === 0.88
-                    ? isEink ? 'bg-black text-white border-black font-bold' : 'bg-sky-50 border-sky-400 text-sky-900 shadow-xs ring-1 ring-sky-300'
+                    ? isEink ? 'border-2 border-black bg-zinc-200 text-black font-bold' : 'bg-sky-50 border-sky-400 text-sky-900 shadow-xs ring-1 ring-sky-300'
                     : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
@@ -217,7 +217,7 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
                 onClick={() => handleApplyPreset('stable')}
                 className={`p-2.5 rounded-lg border text-left transition-all ${
                   config.mode === 'complementary' && config.compAlpha === 0.98
-                    ? isEink ? 'bg-black text-white border-black font-bold' : 'bg-sky-50 border-sky-400 text-sky-900 shadow-xs ring-1 ring-sky-300'
+                    ? isEink ? 'border-2 border-black bg-zinc-200 text-black font-bold' : 'bg-sky-50 border-sky-400 text-sky-900 shadow-xs ring-1 ring-sky-300'
                     : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
@@ -234,7 +234,7 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
                 onClick={() => handleApplyPreset('madgwick')}
                 className={`p-2.5 rounded-lg border text-left transition-all ${
                   config.mode === 'madgwick'
-                    ? isEink ? 'bg-black text-white border-black font-bold' : 'bg-sky-50 border-sky-400 text-sky-900 shadow-xs ring-1 ring-sky-300'
+                    ? isEink ? 'border-2 border-black bg-zinc-200 text-black font-bold' : 'bg-sky-50 border-sky-400 text-sky-900 shadow-xs ring-1 ring-sky-300'
                     : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >
@@ -587,7 +587,7 @@ export const FilterSettingsModal: React.FC<FilterSettingsModalProps> = ({
             onClick={onClose}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
               isEink
-                ? 'bg-black text-white hover:bg-zinc-800'
+                ? 'border-2 border-black bg-white text-black hover:bg-zinc-100 font-bold'
                 : 'bg-slate-900 text-white hover:bg-slate-800 shadow-xs'
             }`}
           >

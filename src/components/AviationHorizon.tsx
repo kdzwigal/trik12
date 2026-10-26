@@ -65,11 +65,11 @@ export const AviationHorizon: React.FC<AviationHorizonProps> = ({ sample, theme 
 
     // Sky & Earth
     if (isEink) {
-      // Sky: White
+      // Sky: Crisp Paper White
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(-radius * 2, -radius * 2 + pitchOffset, radius * 4, radius * 2);
-      // Earth: Deep Black / Dense Hatching
-      ctx.fillStyle = '#111111';
+      // Earth: Soft Paper Grey (reduced black density per user request)
+      ctx.fillStyle = '#e5e5e0';
       ctx.fillRect(-radius * 2, pitchOffset, radius * 4, radius * 2);
     } else {
       // Sky: Aeronautical Cyan
@@ -81,7 +81,7 @@ export const AviationHorizon: React.FC<AviationHorizonProps> = ({ sample, theme 
     }
 
     // Horizon dividing line
-    ctx.strokeStyle = '#ffffff';
+    ctx.strokeStyle = isEink ? '#000000' : '#ffffff';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(-radius * 1.5, pitchOffset);
@@ -99,7 +99,7 @@ export const AviationHorizon: React.FC<AviationHorizonProps> = ({ sample, theme 
       if (Math.abs(y) > radius * 0.95) continue;
 
       const barWidth = Math.abs(deg) % 20 === 0 ? 44 : 26;
-      ctx.strokeStyle = '#ffffff';
+      ctx.strokeStyle = isEink ? '#000000' : '#ffffff';
       ctx.lineWidth = 1.5;
 
       ctx.beginPath();
@@ -107,7 +107,7 @@ export const AviationHorizon: React.FC<AviationHorizonProps> = ({ sample, theme 
       ctx.lineTo(barWidth / 2, y);
       ctx.stroke();
 
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = isEink ? '#000000' : '#ffffff';
       ctx.fillText(`${Math.abs(deg)}`, -barWidth / 2 - 14, y);
       ctx.fillText(`${Math.abs(deg)}`, barWidth / 2 + 14, y);
     }
@@ -279,13 +279,13 @@ export const AviationHorizon: React.FC<AviationHorizonProps> = ({ sample, theme 
       </div>
 
       {/* Main Gauges Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 items-center">
         {/* Gauge 1: Primary Flight Attitude Indicator */}
         <div className="flex flex-col items-center">
-          <div className="w-64 h-64 relative">
+          <div className="w-48 h-48 sm:w-56 sm:h-56 md:w-64 md:h-64 relative">
             <canvas ref={horizonCanvasRef} className="w-full h-full block" />
           </div>
-          <div className="mt-3 flex items-center gap-4 text-xs font-mono">
+          <div className="mt-2.5 sm:mt-3 flex items-center gap-3 sm:gap-4 text-xs font-mono">
             <div>
               Roll: <span className="font-bold">{roll.toFixed(1)}°</span>
             </div>
@@ -298,38 +298,38 @@ export const AviationHorizon: React.FC<AviationHorizonProps> = ({ sample, theme 
 
         {/* Gauge 2: Circular G-Meter / Vector Level */}
         <div className="flex flex-col items-center">
-          <div className="w-56 h-56 relative">
+          <div className="w-44 h-44 sm:w-52 sm:h-52 md:w-56 md:h-56 relative">
             <canvas ref={gmeterCanvasRef} className="w-full h-full block" />
           </div>
-          <div className="mt-3 flex items-center gap-4 text-xs font-mono">
+          <div className="mt-2.5 sm:mt-3 flex items-center gap-4 text-xs font-mono">
             <div>
               Przeciążenie wypadkowe:{' '}
-              <span className="font-bold text-sky-600">{gLoad.toFixed(2)} g</span>
+              <span className={`font-bold ${isEink ? 'text-black' : 'text-sky-600'}`}>{gLoad.toFixed(2)} g</span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Numerical Telemetry Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4 border-t border-slate-100 text-xs font-mono">
-        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-          <span className="text-slate-400 block mb-1">KĄT PRZECHYŁU (ROLL)</span>
-          <span className="text-lg font-bold text-slate-900">{roll.toFixed(1)}°</span>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 pt-3 sm:pt-4 border-t border-slate-100 text-xs font-mono">
+        <div className={`p-2.5 rounded-lg border ${isEink ? 'bg-white border-zinc-300' : 'bg-slate-50 border-slate-200'}`}>
+          <span className="text-slate-400 block mb-1 text-[10px] sm:text-[11px]">KĄT PRZECHYŁU (ROLL)</span>
+          <span className="text-base sm:text-lg font-bold text-slate-900">{roll.toFixed(1)}°</span>
         </div>
-        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-          <span className="text-slate-400 block mb-1">KĄT POCHYLENIA (PITCH)</span>
-          <span className="text-lg font-bold text-slate-900">{pitch.toFixed(1)}°</span>
+        <div className={`p-2.5 rounded-lg border ${isEink ? 'bg-white border-zinc-300' : 'bg-slate-50 border-slate-200'}`}>
+          <span className="text-slate-400 block mb-1 text-[10px] sm:text-[11px]">KĄT POCHYLENIA (PITCH)</span>
+          <span className="text-base sm:text-lg font-bold text-slate-900">{pitch.toFixed(1)}°</span>
         </div>
-        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
-          <span className="text-slate-400 block mb-1">ODCHYLENIE (YAW)</span>
-          <span className="text-lg font-bold text-slate-900">{yaw.toFixed(1)}°</span>
+        <div className={`p-2.5 rounded-lg border ${isEink ? 'bg-white border-zinc-300' : 'bg-slate-50 border-slate-200'}`}>
+          <span className="text-slate-400 block mb-1 text-[10px] sm:text-[11px]">ODCHYLENIE (YAW)</span>
+          <span className="text-base sm:text-lg font-bold text-slate-900">{yaw.toFixed(1)}°</span>
         </div>
-        <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+        <div className={`p-2.5 rounded-lg border ${isEink ? 'bg-white border-zinc-300' : 'bg-slate-50 border-slate-200'}`}>
           <div className="flex items-center justify-between text-slate-400 text-[10px] mb-1">
             <span>OBECNY G-FORCE</span>
-            <span className="text-emerald-700 font-bold bg-emerald-50 px-1 rounded">1.00g Baza</span>
+            <span className={`font-bold px-1 rounded ${isEink ? 'border border-black bg-zinc-100 text-black' : 'text-emerald-700 bg-emerald-50'}`}>1.00g Baza</span>
           </div>
-          <span className="text-lg font-bold text-sky-600">{gLoad.toFixed(2)} g</span>
+          <span className={`text-base sm:text-lg font-bold ${isEink ? 'text-black' : 'text-sky-600'}`}>{gLoad.toFixed(2)} g</span>
         </div>
       </div>
     </div>
