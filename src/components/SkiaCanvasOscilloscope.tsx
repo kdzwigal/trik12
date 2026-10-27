@@ -7,7 +7,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CalibratedSample, ThemeMode } from '../types/triki';
 import { RingBuffer } from '../services/ringBuffer';
-import { Activity, SlidersHorizontal, RefreshCw } from 'lucide-react';
+import { trikiBle } from '../services/bleManager';
+import { sensorPipeline } from '../services/sensorPipeline';
+import { Activity, ArrowLeftRight } from 'lucide-react';
 
 interface SkiaCanvasOscilloscopeProps {
   ringBuffer: RingBuffer<CalibratedSample>;
@@ -19,15 +21,31 @@ interface SkiaCanvasOscilloscopeProps {
 export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
   ringBuffer,
   theme,
-  mode = 'both',
+  mode = 'accel',
   height = 260,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [channelView, setChannelView] = useState<'both' | 'accel' | 'gyro'>(mode);
+  const [channelView, setChannelView] = useState<'accel' | 'gyro'>(
+    mode === 'gyro' ? 'gyro' : 'accel'
+  );
   const [autoScale, setAutoScale] = useState<boolean>(true);
   const [timeWindowSec, setTimeWindowSec] = useState<number>(3); // 3 seconds window
+  const [swappedBytes, setSwappedBytes] = useState<boolean>(
+    trikiBle.getSwapAccelGyroBytes()
+  );
+
+  useEffect(() => {
+    setChannelView(mode === 'gyro' ? 'gyro' : 'accel');
+  }, [mode]);
 
   const isEink = theme === 'eink';
+
+  const handleToggleByteOrder = () => {
+    const next = !trikiBle.getSwapAccelGyroBytes();
+    trikiBle.setSwapAccelGyroBytes(next);
+    sensorPipeline.resetCalibrationBias();
+    setSwappedBytes(next);
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -52,19 +70,14 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
       ctx.scale(dpr, dpr);
 
       // Background styling
-      if (isEink) {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, h);
-      } else {
-        ctx.fillStyle = '#ffffff';
-        ctx.fillRect(0, 0, width, h);
-      }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, h);
 
       const samples = ringBuffer.toArray();
       const numSamples = samples.length;
 
       // Grid dimensions
-      const paddingLeft = 45;
+      const paddingLeft = 52;
       const paddingRight = 15;
       const paddingTop = 20;
       const paddingBottom = 25;
@@ -74,11 +87,7 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
 
       // 1. Draw Grid Lines (Skia Path prototype)
       ctx.lineWidth = 1;
-      if (isEink) {
-        ctx.strokeStyle = '#e0e0e0';
-      } else {
-        ctx.strokeStyle = '#f1f5f9';
-      }
+      ctx.strokeStyle = isEink ? '#e0e0e0' : '#f1f5f9';
 
       // Vertical time grid (every ~0.5 sec)
       const numVerticalGrid = 6;
@@ -109,33 +118,31 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
       ctx.stroke();
 
       // 2. Compute dynamic or fixed scale
-      let maxVal = 2.0; // default +/- 2g or +/- 500 deg/s
-      if (channelView === 'gyro') maxVal = 500.0;
-      else if (channelView === 'both') maxVal = 3.0;
+      let maxVal = channelView === 'gyro' ? 250.0 : 2.0;
 
       if (autoScale && numSamples > 10) {
-        let maxObserved = 0.5;
+        let maxObserved = channelView === 'gyro' ? 15.0 : 0.5;
         const recentCount = Math.min(numSamples, 150);
         for (let i = numSamples - recentCount; i < numSamples; i++) {
           const s = samples[i];
-          if (channelView === 'accel' || channelView === 'both') {
+          if (channelView === 'accel') {
             maxObserved = Math.max(
               maxObserved,
               Math.abs(s.accel.x),
               Math.abs(s.accel.y),
               Math.abs(s.accel.z)
             );
-          }
-          if (channelView === 'gyro') {
+          } else {
             maxObserved = Math.max(
               maxObserved,
-              Math.abs(s.gyro.x * 57.3),
-              Math.abs(s.gyro.y * 57.3),
-              Math.abs(s.gyro.z * 57.3)
+              Math.abs(s.gyro.x * 57.2958),
+              Math.abs(s.gyro.y * 57.2958),
+              Math.abs(s.gyro.z * 57.2958)
             );
           }
         }
-        maxVal = Math.max(maxVal * 0.5, maxObserved * 1.25);
+        const minScale = channelView === 'gyro' ? 25.0 : 1.2;
+        maxVal = Math.max(minScale, maxObserved * 1.25);
       }
 
       // Y-axis labels
@@ -144,13 +151,12 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
       const unit = channelView === 'gyro' ? '°/s' : 'g';
-      ctx.fillText(`+${maxVal.toFixed(1)} ${unit}`, paddingLeft - 6, paddingTop + 4);
-      ctx.fillText(`0.0`, paddingLeft - 6, midY);
-      ctx.fillText(`-${maxVal.toFixed(1)}`, paddingLeft - 6, paddingTop + plotHeight - 4);
+      ctx.fillText(`+${maxVal.toFixed(1)}${unit}`, paddingLeft - 5, paddingTop + 4);
+      ctx.fillText(`0.0`, paddingLeft - 5, midY);
+      ctx.fillText(`-${maxVal.toFixed(1)}${unit}`, paddingLeft - 5, paddingTop + plotHeight - 4);
 
       // 3. Draw Waveforms with Skia-like Path strokes
       if (numSamples > 1) {
-        // We plot the last N samples based on timeWindowSec (assumed ~100Hz = 100 * timeWindowSec)
         const maxSamplesToPlot = Math.min(numSamples, Math.round(timeWindowSec * 100));
         const startIndex = numSamples - maxSamplesToPlot;
         const stepX = plotWidth / (maxSamplesToPlot - 1);
@@ -182,17 +188,13 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
           ctx.setLineDash([]);
         };
 
-        if (channelView === 'accel' || channelView === 'both') {
-          // X: Cyan or Solid Black
+        if (channelView === 'accel') {
+          // Accelerometer X, Y, Z in g
           drawSeries((s) => s.accel.x, isEink ? '#000000' : '#0284c7', []);
-          // Y: Indigo or Dashed Black
           drawSeries((s) => s.accel.y, isEink ? '#444444' : '#4f46e5', isEink ? [4, 4] : []);
-          // Z: Amber or Dotted Black
           drawSeries((s) => s.accel.z, isEink ? '#777777' : '#f59e0b', isEink ? [2, 2] : []);
-        }
-
-        if (channelView === 'gyro') {
-          // Gyro X, Y, Z in deg/s
+        } else {
+          // Gyroscope X, Y, Z in deg/s
           drawSeries((s) => s.gyro.x * 57.2958, isEink ? '#000000' : '#0284c7', []);
           drawSeries((s) => s.gyro.y * 57.2958, isEink ? '#444444' : '#4f46e5', isEink ? [4, 4] : []);
           drawSeries((s) => s.gyro.z * 57.2958, isEink ? '#777777' : '#f59e0b', isEink ? [2, 2] : []);
@@ -203,7 +205,15 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
       ctx.textAlign = 'center';
       ctx.font = '10px monospace';
       ctx.fillStyle = isEink ? '#000000' : '#94a3b8';
-      ctx.fillText(`Okno czasowe: -${timeWindowSec}s do 0s (100 Hz Skia Buffer)`, paddingLeft + plotWidth / 2, h - 6);
+      const channelTitle =
+        channelView === 'accel'
+          ? 'Kanał: Akcelerometr XYZ (g)'
+          : 'Kanał: Żyroskop XYZ (°/s)';
+      ctx.fillText(
+        `${channelTitle} · Okno: -${timeWindowSec}s do 0s (100 Hz)`,
+        paddingLeft + plotWidth / 2,
+        h - 6
+      );
 
       ctx.restore();
       animId = requestAnimationFrame(render);
@@ -214,6 +224,7 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
   }, [isEink, channelView, autoScale, timeWindowSec, ringBuffer]);
 
   const latest = ringBuffer.getLatest();
+  const unitStr = channelView === 'gyro' ? '°/s' : 'g';
 
   return (
     <div
@@ -230,7 +241,17 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
           <h3 className="text-sm font-semibold tracking-tight">
             Oscyloskop fal IMU (Skia 2D Engine)
           </h3>
-          <span className="text-xs font-mono opacity-60 hidden sm:inline">· 100 Hz Frame Buffer</span>
+          <span
+            className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${
+              isEink
+                ? 'border-black bg-zinc-100 text-black'
+                : channelView === 'accel'
+                ? 'bg-sky-50 text-sky-700 border-sky-200'
+                : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+            }`}
+          >
+            {channelView === 'accel' ? 'AKCELEROMETR (g)' : 'ŻYROSKOP (°/s)'}
+          </span>
         </div>
 
         {/* Channel & Controls */}
@@ -242,18 +263,18 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
             }`}
           >
             <button
-              onClick={() => setChannelView('both')}
+              onClick={() => setChannelView('accel')}
               className={`px-2 sm:px-2.5 py-1 rounded-md font-medium transition-colors ${
-                channelView === 'both'
+                channelView === 'accel'
                   ? isEink
                     ? 'border border-black bg-zinc-200 text-black font-bold'
-                    : 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-white text-slate-900 shadow-xs font-semibold'
                   : isEink
                   ? 'text-zinc-600 hover:text-black'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Accel XYZ
+              Accel XYZ (g)
             </button>
             <button
               onClick={() => setChannelView('gyro')}
@@ -261,15 +282,33 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
                 channelView === 'gyro'
                   ? isEink
                     ? 'border border-black bg-zinc-200 text-black font-bold'
-                    : 'bg-white text-slate-900 shadow-xs'
+                    : 'bg-white text-slate-900 shadow-xs font-semibold'
                   : isEink
                   ? 'text-zinc-600 hover:text-black'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Żyro XYZ
+              Żyro XYZ (°/s)
             </button>
           </div>
+
+          {/* Hardware Byte Order Swap Toggle (Accel [2..7] ⇄ Gyro [8..13]) */}
+          <button
+            onClick={handleToggleByteOrder}
+            className={`flex items-center gap-1 px-2 py-1 rounded-lg border font-mono text-[11px] transition-colors ${
+              isEink
+                ? 'border-black bg-white text-black hover:bg-zinc-100'
+                : swappedBytes
+                ? 'bg-amber-50 text-amber-800 border-amber-300'
+                : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
+            title="Przełącz kolejność bajtów sensorów w ramce BLE 0x22: Bajty [2..7] vs [8..13]"
+          >
+            <ArrowLeftRight className="w-3 h-3" />
+            <span>
+              {swappedBytes ? '[2..7]=Żyro' : '[2..7]=Accel'}
+            </span>
+          </button>
 
           {/* Time window selector */}
           <select
@@ -313,14 +352,14 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
 
       {/* Live Value Legend with Tabular Figures */}
       <div className="flex items-center justify-between text-xs font-mono pt-1 border-t border-slate-100 flex-wrap gap-2">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
           <span className="flex items-center gap-1.5 font-medium">
             <span
               className={`inline-block w-2.5 h-2.5 rounded-sm ${
                 isEink ? 'bg-black' : 'bg-sky-600'
               }`}
             />
-            X: {latest ? (channelView === 'gyro' ? (latest.gyro.x * 57.3).toFixed(1) : latest.accel.x.toFixed(2)) : '0.00'}
+            X: {latest ? (channelView === 'gyro' ? (latest.gyro.x * 57.2958).toFixed(1) : latest.accel.x.toFixed(2)) : '0.00'} {unitStr}
           </span>
           <span className="flex items-center gap-1.5 font-medium">
             <span
@@ -328,7 +367,7 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
                 isEink ? 'border border-black' : 'bg-indigo-600'
               }`}
             />
-            Y: {latest ? (channelView === 'gyro' ? (latest.gyro.y * 57.3).toFixed(1) : latest.accel.y.toFixed(2)) : '0.00'}
+            Y: {latest ? (channelView === 'gyro' ? (latest.gyro.y * 57.2958).toFixed(1) : latest.accel.y.toFixed(2)) : '0.00'} {unitStr}
           </span>
           <span className="flex items-center gap-1.5 font-medium">
             <span
@@ -336,20 +375,22 @@ export const SkiaCanvasOscilloscope: React.FC<SkiaCanvasOscilloscopeProps> = ({
                 isEink ? 'bg-zinc-400' : 'bg-amber-500'
               }`}
             />
-            Z: {latest ? (channelView === 'gyro' ? (latest.gyro.z * 57.3).toFixed(1) : latest.accel.z.toFixed(2)) : '0.00'}
+            Z: {latest ? (channelView === 'gyro' ? (latest.gyro.z * 57.2958).toFixed(1) : latest.accel.z.toFixed(2)) : '0.00'} {unitStr}
           </span>
         </div>
 
-        <div className="text-slate-500 dark:text-slate-400">
+        <div className="text-slate-500">
           Wypadkowa: |{channelView === 'gyro' ? 'ω' : 'a'}| ={' '}
-          <span className="font-semibold text-slate-800 dark:text-white">
+          <span className="font-semibold text-slate-800">
             {latest
               ? (channelView === 'gyro'
-                  ? latest.gyroMagnitude * 57.3
+                  ? latest.gyroMagnitude * 57.2958
                   : latest.accelMagnitude
                 ).toFixed(2)
-              : '1.00'}
-            {channelView === 'gyro' ? ' °/s' : ' g'}
+              : channelView === 'gyro'
+              ? '0.00'
+              : '1.00'}{' '}
+            {unitStr}
           </span>
         </div>
       </div>

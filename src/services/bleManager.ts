@@ -86,10 +86,29 @@ export class TrikiBleManager {
   private lastButtonEdgeTime: number = 0;
   private virtualButtonUntil: number = 0;
 
+  // Packet sensor order: false (default) = Bytes [2..7] Accel, Bytes [8..13] Gyro
+  // true = Bytes [2..7] Gyro, Bytes [8..13] Accel
+  public swapAccelGyroBytes: boolean = false;
+
   // LED state management
   public ledControlMethod: LedControlMethod = 'auto';
   public isLedOn: boolean = false;
   private isBlinking: boolean = false;
+
+  public setSwapAccelGyroBytes(swap: boolean): void {
+    this.swapAccelGyroBytes = swap;
+    this.addLog(
+      `Kolejność sensorów w ramce 0x22: ${
+        swap
+          ? 'Bajty [2..7]=Żyroskop, [8..13]=Akcelerometr'
+          : 'Bajty [2..7]=Akcelerometr, [8..13]=Żyroskop (Domyślne)'
+      }`
+    );
+  }
+
+  public getSwapAccelGyroBytes(): boolean {
+    return this.swapAccelGyroBytes;
+  }
 
   public setButtonMode(mode: ButtonMode): void {
     this.buttonMode = mode;
@@ -579,24 +598,48 @@ export class TrikiBleManager {
           break;
       }
 
-      // Bytes [headerOffset + 2..7]: Gyroscope X, Y, Z (int16_le)
-      if (len >= headerOffset + 8) {
-        const rawGx = dataView.getInt16(headerOffset + 2, true);
-        const rawGy = dataView.getInt16(headerOffset + 4, true);
-        const rawGz = dataView.getInt16(headerOffset + 6, true);
-        gx = rawGx * this.gyroScaleTriki;
-        gy = rawGy * this.gyroScaleTriki;
-        gz = rawGz * this.gyroScaleTriki;
-      }
+      if (!this.swapAccelGyroBytes) {
+        // Default hardware order:
+        // Bytes [headerOffset + 2..7]: Accelerometer X, Y, Z (int16_le)
+        if (len >= headerOffset + 8) {
+          const rawAx = dataView.getInt16(headerOffset + 2, true);
+          const rawAy = dataView.getInt16(headerOffset + 4, true);
+          const rawAz = dataView.getInt16(headerOffset + 6, true);
+          ax = rawAx * this.accelScaleTriki;
+          ay = rawAy * this.accelScaleTriki;
+          az = rawAz * this.accelScaleTriki;
+        }
 
-      // Bytes [headerOffset + 8..13]: Accelerometer X, Y, Z (int16_le)
-      if (len >= headerOffset + 14) {
-        const rawAx = dataView.getInt16(headerOffset + 8, true);
-        const rawAy = dataView.getInt16(headerOffset + 10, true);
-        const rawAz = dataView.getInt16(headerOffset + 12, true);
-        ax = rawAx * this.accelScaleTriki;
-        ay = rawAy * this.accelScaleTriki;
-        az = rawAz * this.accelScaleTriki;
+        // Bytes [headerOffset + 8..13]: Gyroscope X, Y, Z (int16_le)
+        if (len >= headerOffset + 14) {
+          const rawGx = dataView.getInt16(headerOffset + 8, true);
+          const rawGy = dataView.getInt16(headerOffset + 10, true);
+          const rawGz = dataView.getInt16(headerOffset + 12, true);
+          gx = rawGx * this.gyroScaleTriki;
+          gy = rawGy * this.gyroScaleTriki;
+          gz = rawGz * this.gyroScaleTriki;
+        }
+      } else {
+        // Alternative swapped order:
+        // Bytes [headerOffset + 2..7]: Gyroscope X, Y, Z (int16_le)
+        if (len >= headerOffset + 8) {
+          const rawGx = dataView.getInt16(headerOffset + 2, true);
+          const rawGy = dataView.getInt16(headerOffset + 4, true);
+          const rawGz = dataView.getInt16(headerOffset + 6, true);
+          gx = rawGx * this.gyroScaleTriki;
+          gy = rawGy * this.gyroScaleTriki;
+          gz = rawGz * this.gyroScaleTriki;
+        }
+
+        // Bytes [headerOffset + 8..13]: Accelerometer X, Y, Z (int16_le)
+        if (len >= headerOffset + 14) {
+          const rawAx = dataView.getInt16(headerOffset + 8, true);
+          const rawAy = dataView.getInt16(headerOffset + 10, true);
+          const rawAz = dataView.getInt16(headerOffset + 12, true);
+          ax = rawAx * this.accelScaleTriki;
+          ay = rawAy * this.accelScaleTriki;
+          az = rawAz * this.accelScaleTriki;
+        }
       }
 
       // Check for battery byte at offset + 14 if frame length allows

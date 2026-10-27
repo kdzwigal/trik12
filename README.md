@@ -37,8 +37,8 @@ HEX: 20 10 00 D0 07 68 00 03
 Każdy pakiet z charakterystyki `6E400003` zawiera:
 - **Bajt 0**: Bajt synchronizacji / nagłówka (`0x22`)
 - **Bajt 1**: Stan przycisku (`0x01` = wciśnięty, `0x00` = puszczony)
-- **Bajty 2–7**: Żyroskop X, Y, Z (`int16_le`)
-- **Bajty 8–13**: Akcelerometr X, Y, Z (`int16_le`)
+- **Bajty 2–7**: Akcelerometr X, Y, Z (`int16_le`)
+- **Bajty 8–13**: Żyroskop X, Y, Z (`int16_le`)
 - **Bajt 14** (opcjonalny): Poziom naładowania baterii w procentach (0–100%)
 
 ---

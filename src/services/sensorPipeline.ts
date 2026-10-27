@@ -162,6 +162,23 @@ export class SensorPipeline {
   public resetOrientation(): void {
     this.fusion.reset();
     this.fusion.tare();
+    this.lpfInitialized = false;
+    this.stillFramesCount = 0;
+  }
+
+  public resetCalibrationBias(): void {
+    this.calibration.gyroBiasX = 0;
+    this.calibration.gyroBiasY = 0;
+    this.calibration.gyroBiasZ = 0;
+    this.calibration.accelOffsetX = 0;
+    this.calibration.accelOffsetY = 0;
+    this.calibration.accelOffsetZ = 0;
+    this.startupSamplesCount = 0;
+    this.lpfInitialized = false;
+    this.stillFramesCount = 0;
+    this.fusion.reset();
+    this.fusion.tare();
+    this.notifyCalibrationChanged();
   }
 
   public tare(): void {

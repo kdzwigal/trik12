@@ -152,12 +152,12 @@ export const SignalInspector: React.FC<SignalInspectorProps> = ({
             Bajt 0: 0x22, Bajt 1: 0=Puszczony, 1=Wciśnięty
           </div>
           <div className="p-2 rounded bg-slate-50 border border-slate-200">
-            <span className="font-semibold block text-slate-700">Bajty [2..7]: Gyroscope XYZ</span>
-            3x int16_le (131.0 LSB / °/s)
+            <span className="font-semibold block text-slate-700">Bajty [2..7]: Accelerometer XYZ</span>
+            3x int16_le (1823 LSB / g, skalowane do 1.00g)
           </div>
           <div className="p-2 rounded bg-slate-50 border border-slate-200">
-            <span className="font-semibold block text-slate-700">Bajty [8..13]: Accelerometer XYZ</span>
-            3x int16_le (2048.0 LSB / g)
+            <span className="font-semibold block text-slate-700">Bajty [8..13]: Gyroscope XYZ</span>
+            3x int16_le (16.384 LSB / °/s, ±2000 dps)
           </div>
           <div className="p-2 rounded bg-slate-50 border border-slate-200">
             <span className="font-semibold block text-slate-700">NUS RX Start Cmd</span>
